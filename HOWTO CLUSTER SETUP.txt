@@ -1,7 +1,7 @@
 This file is part of PyBroMo: a single-molecule Brownian motion diffusion 
 simulator for confocal smFRET experiments:
 
-* http://tritemio.github.io/PyBroMo/
+* http://opensmfs.github.io/PyBroMo/
 
 
 Introduction
