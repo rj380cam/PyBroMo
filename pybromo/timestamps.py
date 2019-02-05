@@ -41,6 +41,7 @@ def merge_da(ts_d, ts_par_d, ts_a, ts_par_a):
 #  Timestamp simulation definitions
 #
 
+
 def em_rates_from_E_DA(em_rate_tot, E_values):
     """Donor and Acceptor emission rates from total emission rate and E (FRET).
     """
@@ -49,11 +50,13 @@ def em_rates_from_E_DA(em_rate_tot, E_values):
     em_rates_d = em_rate_tot - em_rates_a
     return em_rates_d, em_rates_a
 
+
 def em_rates_from_E_unique(em_rate_tot, E_values):
     """Array of unique emission rates for given total emission and E (FRET).
     """
     em_rates_d, em_rates_a = em_rates_from_E_DA(em_rate_tot, E_values)
     return np.unique(np.hstack([em_rates_d, em_rates_a]))
+
 
 def em_rates_from_E_DA_mix(em_rates_tot, E_values):
     """D and A emission rates for two populations.
@@ -64,6 +67,7 @@ def em_rates_from_E_DA_mix(em_rates_tot, E_values):
         em_rates_d.append(em_rate_di)
         em_rates_a.append(em_rate_ai)
     return em_rates_d, em_rates_a
+
 
 def populations_diff_coeff(particles, populations):
     """Diffusion coefficients of the two specified populations.
@@ -82,6 +86,7 @@ def populations_diff_coeff(particles, populations):
         assert pop.stop <= D_pop_start + counts
         D_pop_start += counts
     return D_list
+
 
 def populations_slices(particles, num_pop_list):
     """2-tuple of slices for selection of two populations.
@@ -142,7 +147,7 @@ class TimestapSimulation:
                       bg_rate_a=bg_rate_a, timeslice=timeslice,
                       em_rates_d=em_rates_d, em_rates_a=em_rates_a,
                       D_values=D_values, populations=populations,
-                      traj_filename = S.store.filepath.name)
+                      traj_filename=S.store.filepath.name)
 
         for k, v in params.items():
             setattr(self, k, v)
@@ -167,13 +172,14 @@ class TimestapSimulation:
             Donor:              {self.bg_rate_d:7,} cps
             Acceptor:           {self.bg_rate_a:7,} cps
         """
+
     def __str__(self):
         txt = [self.txt_header.format(self=self)]
         pop_params = (self.em_rates, self.E_values, self.num_particles,
                       self.D_values, self.populations)
         for p_i, (em_rate, E, num_pop, D, pop) in enumerate(zip(*pop_params)):
             txt.append(self.txt_population.format(p_i=p_i + 1,
-                num_pop=num_pop, D=D, em_rate=em_rate, E=E, pop=pop))
+                       num_pop=num_pop, D=D, em_rate=em_rate, E=E, pop=pop))
 
         txt.append(self.txt_background.format(self=self))
         return ''.join(txt)
@@ -222,9 +228,9 @@ class TimestapSimulation:
         self.hash_d = hash_(rs.get_state())[:6]   # needed by merge_da()
         print('%s Donor timestamps -    %s' % (header, ctime()), flush=True)
         self.S.simulate_timestamps_mix(
-            populations = self.populations,
-            max_rates = self.em_rates_d,
-            bg_rate = self.bg_rate_d,
+            populations=self.populations,
+            max_rates=self.em_rates_d,
+            bg_rate=self.bg_rate_d,
             **kwargs)
 
         # Acceptor timestamps hash is from 'last_random_state' attribute
@@ -235,9 +241,9 @@ class TimestapSimulation:
         self.hash_a = hash_(rs.get_state())[:6]   # needed by merge_da()
         print('\n%s Acceptor timestamps - %s' % (header, ctime()), flush=True)
         self.S.simulate_timestamps_mix(
-            populations = self.populations,
-            max_rates = self.em_rates_a,
-            bg_rate = self.bg_rate_a,
+            populations=self.populations,
+            max_rates=self.em_rates_a,
+            bg_rate=self.bg_rate_a,
             **kwargs)
         print('\n%s Completed. %s' % (header, ctime()), flush=True)
 
@@ -257,29 +263,27 @@ class TimestapSimulation:
         print('%s Donor + Acceptor timestamps - %s' %
               (header, ctime()), flush=True)
         self.S.simulate_timestamps_mix_da(
-            max_rates_d = self.em_rates_d,
-            max_rates_a = self.em_rates_a,
-            populations = self.populations,
-            bg_rate_d = self.bg_rate_d,
-            bg_rate_a = self.bg_rate_a,
+            max_rates_d=self.em_rates_d,
+            max_rates_a=self.em_rates_a,
+            populations=self.populations,
+            bg_rate_d=self.bg_rate_d,
+            bg_rate_a=self.bg_rate_a,
             **kwargs)
         print('\n%s Completed. %s' % (header, ctime()), flush=True)
 
-
     @property
     def name_timestamps_d(self):
-        names_d = self.S.timestamps_match_mix(self.em_rates_d, self.populations,
-                                              self.bg_rate_d, self.hash_d)
+        names_d = self.S.timestamps_match_mix(
+            self.em_rates_d, self.populations, self.bg_rate_d, self.hash_d)
         assert len(names_d) == 1
         return names_d[0]
 
     @property
     def name_timestamps_a(self):
-        names_a = self.S.timestamps_match_mix(self.em_rates_a, self.populations,
-                                              self.bg_rate_a, self.hash_a)
+        names_a = self.S.timestamps_match_mix(
+            self.em_rates_a, self.populations, self.bg_rate_a, self.hash_a)
         assert len(names_a) == 1
         return names_a[0]
-
 
     def merge_da(self):
         """Merge donor and acceptor timestamps, computes `ts`, `a_ch`, `part`.
