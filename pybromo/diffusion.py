@@ -686,7 +686,7 @@ class ParticlesSimulation(object):
         return names
 
     def _sim_timestamps(self, max_rate, bg_rate, emission, i_start, rs,
-                        ip_start=0, scale=10, sort=True):
+                        ip_start=0, scale=10, sort=True, save_pos=False):
         """Simulate timestamps from emission trajectories.
 
         Uses attributes: `.t_step`.
@@ -702,7 +702,9 @@ class ParticlesSimulation(object):
         assert counts_chunk.shape == (nrows, emission.shape[1])
         max_counts = counts_chunk.max()
         if max_counts == 0:
-            return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
+            return (np.array([], dtype=np.int64),    # timestamps
+                    np.array([], dtype=np.int64),    # particles
+                    np.array([], dtype=np.float32))  # positions
 
         time_start = i_start * scale
         time_stop = time_start + counts_chunk.shape[1] * scale
@@ -722,51 +724,67 @@ class ParticlesSimulation(object):
             # Append current particle
             times_chunk_p.append(t)
             par_index_chunk_p.append(np.full(t.size, ip + ip_start, dtype='u1'))
+            if save_pos:
+                # TODO compute and asve positions
+                pass
 
         # Merge the arrays of different particles
         times_chunk = np.hstack(times_chunk_p)
         par_index_chunk = np.hstack(par_index_chunk_p)
+        positions_chunk = np.zeros(
+            (times_chunk.shape[-1], self.positions.shape[1]), dtype=np.float32)
 
         if sort:
             # Sort timestamps inside the merged chunk
             index_sort = times_chunk.argsort(kind='mergesort')
             times_chunk = times_chunk[index_sort]
             par_index_chunk = par_index_chunk[index_sort]
+            if save_pos:
+                # TODO: reorder positions
+                pass
 
-        return times_chunk, par_index_chunk
+        return times_chunk, par_index_chunk, positions_chunk
 
     def _sim_timestamps_populations(self, emission, max_rates, populations,
-                                    bg_rates, i_start, rs, scale=10):
+                                    bg_rates, i_start, rs, scale=10,
+                                    save_pos=False):
         if populations is None:
             populations = [slice(0, self.num_particles)]
 
         # Loop for each population
         ts_chunk_pop_list, par_index_chunk_pop_list = [], []
+        positions_chunk_pop_list = []
         # Loop through populations
         for rate, pop, bg in zip(max_rates, populations, bg_rates):
             emission_pop = emission[pop]
-            ts_chunk_pop, par_index_chunk_pop = \
+            ts_chunk_pop, par_index_chunk_pop, positions_pop = \
                 self._sim_timestamps(
                     rate, bg, emission_pop, i_start, ip_start=pop.start,
-                    rs=rs, scale=scale, sort=False)
+                    rs=rs, scale=scale, sort=False, save_pos=save_pos)
 
             ts_chunk_pop_list.append(ts_chunk_pop)
             par_index_chunk_pop_list.append(par_index_chunk_pop)
+            if save_pos:
+                positions_chunk_pop_list.append(positions_pop)
 
         # Merge populations
         times_chunk_s = np.hstack(ts_chunk_pop_list)
         par_index_chunk_s = np.hstack(par_index_chunk_pop_list)
+        if save_pos:
+            positions_chunk_s = np.hstack(positions_chunk_pop_list)
 
         # Sort timestamps inside the merged chunk
         index_sort = times_chunk_s.argsort(kind='mergesort')
         times_chunk_s = times_chunk_s[index_sort]
         par_index_chunk_s = par_index_chunk_s[index_sort]
-        return times_chunk_s, par_index_chunk_s
+        if save_pos:
+            positions_chunk_s = positions_chunk_s[index_sort]
+        return times_chunk_s, par_index_chunk_s, positions_chunk_s
 
     def simulate_timestamps_mix(self, max_rates, populations, bg_rate,
                                 rs=None, seed=1, chunksize=2**16,
                                 comp_filter=None, overwrite=False,
-                                skip_existing=False, scale=10,
+                                skip_existing=False, scale=10, save_pos=False,
                                 path=None, t_chunksize=None, timeslice=None):
         """Compute one timestamps array for a mixture of N populations.
 
@@ -797,6 +815,8 @@ class ParticlesSimulation(object):
             scale (int): `self.t_step` is multiplied by `scale` to obtain the
                 timestamps units in seconds.
             path (string): folder where to save the data.
+            save_pos (bool): if True save 3D position of each particle
+                for each emitted photon.
             timeslice (float or None): timestamps are simulated until
                 `timeslice` seconds. If None, simulate until `self.t_max`.
         """
@@ -814,13 +834,16 @@ class ParticlesSimulation(object):
             max_rates=max_rates, bg_rate=bg_rate, populations=populations,
             num_particles=self.num_particles,
             bg_particle=self.num_particles,
-            overwrite=overwrite, chunksize=chunksize
+            overwrite=overwrite, chunksize=chunksize,
+            save_pos=save_pos,
             )
+        if save_pos:
+            kw.update(spatial_dims=self.positions.shape[1])
         if comp_filter is not None:
             kw.update(comp_filter=comp_filter)
         try:
-            self._timestamps, self._tparticles = (self.ts_store
-                                                  .add_timestamps(**kw))
+            self._timestamps, self._tparticles, self._tpositions = (
+                self.ts_store.add_timestamps(**kw))
         except ExistingArrayError as e:
             if skip_existing:
                 print(' - Skipping already present timestamps array.')
@@ -832,7 +855,7 @@ class ParticlesSimulation(object):
         self._timestamps.attrs['init_random_state'] = rs.get_state()
         self._timestamps.attrs['PyBroMo'] = __version__
 
-        ts_list, part_list = [], []
+        ts_list, part_list, pos_list = [], [], []
         # Load emission in chunks, and save only the final timestamps
         bg_rates = [None] * (len(max_rates) - 1) + [bg_rate]
         prev_time = 0
@@ -846,18 +869,21 @@ class ParticlesSimulation(object):
 
             em_chunk = self.emission[:, i_start:i_end]
 
-            times_chunk_s, par_index_chunk_s = \
+            times_chunk_s, par_index_chunk_s, positions_chunk_s = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates, populations, bg_rates, i_start,
-                    rs, scale)
+                    rs, scale, save_pos=save_pos)
 
-            # Save sorted timestamps (suffix '_s') and corresponding particles
+            # Save sorted "photons" (suffix '_s')
             ts_list.append(times_chunk_s)
             part_list.append(par_index_chunk_s)
+            pos_list.append(positions_chunk_s)  # it may be a list of None
 
-        for ts, part in zip(ts_list, part_list):
+        for ts, part, pos in zip(ts_list, part_list, pos_list):
             self._timestamps.append(ts)
             self._tparticles.append(part)
+            if save_pos:
+                self._tpositions.append(pos)
 
         # Save current random state so it can be resumed in the next session
         self.ts_group._v_attrs['last_random_state'] = rs.get_state()
@@ -933,8 +959,8 @@ class ParticlesSimulation(object):
 
         kw.update(name=name_d, max_rates=max_rates_d, bg_rate=bg_rate_d)
         try:
-            self._timestamps_d, self._tparticles_d = (self.ts_store
-                                                      .add_timestamps(**kw))
+            self._timestamps_d, self._tparticles_d, _ = (
+                self.ts_store.add_timestamps(**kw))
         except ExistingArrayError as e:
             if skip_existing:
                 print(' - Skipping already present timestamps array.')
@@ -944,8 +970,8 @@ class ParticlesSimulation(object):
 
         kw.update(name=name_a, max_rates=max_rates_a, bg_rate=bg_rate_a)
         try:
-            self._timestamps_a, self._tparticles_a = (self.ts_store
-                                                      .add_timestamps(**kw))
+            self._timestamps_a, self._tparticles_a, _ = (
+                self.ts_store.add_timestamps(**kw))
         except ExistingArrayError as e:
             if skip_existing:
                 print(' - Skipping already present timestamps array.')
@@ -972,12 +998,12 @@ class ParticlesSimulation(object):
 
             em_chunk = self.emission[:, i_start:i_end]
 
-            times_chunk_s_d, par_index_chunk_s_d = \
+            times_chunk_s_d, par_index_chunk_s_d, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_d, populations, bg_rates_d, i_start,
                     rs, scale)
 
-            times_chunk_s_a, par_index_chunk_s_a = \
+            times_chunk_s_a, par_index_chunk_s_a, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_a, populations, bg_rates_a, i_start,
                     rs, scale)
@@ -1057,8 +1083,8 @@ class ParticlesSimulation(object):
 
         kw.update(name=name_d, max_rates=max_rates_d, bg_rate=bg_rate_d)
         try:
-            self._timestamps_d, self._tparticles_d = (self.ts_store
-                                                      .add_timestamps(**kw))
+            self._timestamps_d, self._tparticles_d, _ = (
+                self.ts_store.add_timestamps(**kw))
         except ExistingArrayError as e:
             if skip_existing:
                 print(' - Skipping, timestamps array already present.')
@@ -1068,8 +1094,8 @@ class ParticlesSimulation(object):
 
         kw.update(name=name_a, max_rates=max_rates_a, bg_rate=bg_rate_a)
         try:
-            self._timestamps_a, self._tparticles_a = (self.ts_store
-                                                      .add_timestamps(**kw))
+            self._timestamps_a, self._tparticles_a, _ = (
+                self.ts_store.add_timestamps(**kw))
         except ExistingArrayError as e:
             if skip_existing:
                 print(' - Skipping, timestamps array already present.')
@@ -1103,12 +1129,12 @@ class ParticlesSimulation(object):
                                                  save_pos=False, radial=False,
                                                  wrap_func=wrap_periodic)
 
-            times_chunk_s_d, par_index_chunk_s_d = \
+            times_chunk_s_d, par_index_chunk_s_d, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_d, populations, bg_rates_d, i_start,
                     rs, scale)
 
-            times_chunk_s_a, par_index_chunk_s_a = \
+            times_chunk_s_a, par_index_chunk_s_a, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_a, populations, bg_rates_a, i_start,
                     rs, scale)
