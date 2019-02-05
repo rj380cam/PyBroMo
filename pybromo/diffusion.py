@@ -712,7 +712,7 @@ class ParticlesSimulation(object):
         times_chunk_p = []
         par_index_chunk_p = []
         for ip, counts_chunk_ip in enumerate(counts_chunk):
-            # Compute timestamps for particle ip for all bins with counts
+            # Compute timestamps for particle ip for all bins with counts > 0
             times_c_ip = []
             for v in range(1, max_counts + 1):
                 times_c_ip.append(ts_range[counts_chunk_ip >= v])
@@ -742,6 +742,7 @@ class ParticlesSimulation(object):
 
         # Loop for each population
         ts_chunk_pop_list, par_index_chunk_pop_list = [], []
+        # Loop through populations
         for rate, pop, bg in zip(max_rates, populations, bg_rates):
             emission_pop = emission[pop]
             ts_chunk_pop, par_index_chunk_pop = \
@@ -808,11 +809,13 @@ class ParticlesSimulation(object):
             timeslice_size = timeslice // self.t_step
 
         name = self._get_ts_name_mix(max_rates, populations, bg_rate, rs=rs)
-        kw = dict(name=name, clk_p=self.t_step / scale,
-                  max_rates=max_rates, bg_rate=bg_rate, populations=populations,
-                  num_particles=self.num_particles,
-                  bg_particle=self.num_particles,
-                  overwrite=overwrite, chunksize=chunksize)
+        kw = dict(
+            name=name, clk_p=self.t_step / scale,
+            max_rates=max_rates, bg_rate=bg_rate, populations=populations,
+            num_particles=self.num_particles,
+            bg_particle=self.num_particles,
+            overwrite=overwrite, chunksize=chunksize
+            )
         if comp_filter is not None:
             kw.update(comp_filter=comp_filter)
         try:
@@ -833,6 +836,7 @@ class ParticlesSimulation(object):
         # Load emission in chunks, and save only the final timestamps
         bg_rates = [None] * (len(max_rates) - 1) + [bg_rate]
         prev_time = 0
+        # Loop through time and for each time-slice simulate all populations
         for i_start, i_end in iter_chunk_index(timeslice_size, t_chunksize):
 
             curr_time = np.around(i_start * self.t_step, decimals=0)
