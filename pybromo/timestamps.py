@@ -99,7 +99,7 @@ def populations_slices(particles, num_pop_list):
     return slices
 
 
-class TimestapSimulation:
+class TimestampSimulation:
     """Simulate timestamps for a mixture of two populations.
 
     Attributes set by input arguments:

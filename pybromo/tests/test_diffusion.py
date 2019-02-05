@@ -218,7 +218,7 @@ def test_TimestampSimulation():
         bg_rate_a = 800,        # Poisson background rate (cps) Acceptor channel
         )
 
-    mix_sim = pbm.TimestapSimulation(S, **params)
+    mix_sim = pbm.TimestampSimulation(S, **params)
     mix_sim.summarize()
 
     rs = np.random.RandomState(_SEED)

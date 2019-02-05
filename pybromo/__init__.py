@@ -18,4 +18,4 @@ from .utils import hdf5
 
 from .diffusion import Box, Particles, ParticlesSimulation, hash_
 from .psflib import GaussianPSF, NumericPSF
-from .timestamps import TimestapSimulation
+from .timestamps import TimestampSimulation
