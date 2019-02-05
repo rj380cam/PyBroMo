@@ -215,7 +215,15 @@ class TimestapSimulation:
 
     def run(self, rs, overwrite=True, skip_existing=False, path=None,
             chunksize=None):
-        """Compute timestamps for current populations."""
+        """Compute timestamps for current populations.
+
+        This method simulate timestamps separately for donor and acceptor,
+        simulating two different Poisson processes. This requires going
+        through the trajectory file twice which is slower but more flexible
+        than a single-pass.
+
+        See also :meth:`run_da`.
+        """
         if path is None:
             path = str(self.S.store.filepath.parent)
         kwargs = dict(rs=rs, overwrite=overwrite, path=path,
@@ -249,7 +257,17 @@ class TimestapSimulation:
 
     def run_da(self, rs, overwrite=True, skip_existing=False, path=None,
                chunksize=None):
-        """Compute timestamps for current populations."""
+        """Compute timestamps for current populations.
+
+        This method simulate timestamps for donor and acceptor from a single
+        Poisson process, then splitting D and A photons with according to a
+        Binomial distribution. This requires going through the trajectory
+        file only once but is more limited than independent simulations
+        for D and A as done by :meth:`run`.
+
+        See also :meth:`run`.
+        """
+
         if path is None:
             path = str(self.S.store.filepath.parent)
         kwargs = dict(rs=rs, overwrite=overwrite, path=path,
