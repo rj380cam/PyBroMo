@@ -383,7 +383,7 @@ class TimestampSimulation:
                 detectors_specs = dict(spectral_ch1 = np.atleast_1d(0),
                                        spectral_ch2 = np.atleast_1d(1))))
         if self.pos is not None:
-            print('positio')
+            print('Saving particle positions in /photon_data/user/positions')
             photon_data['user'] = dict(positions=self.pos)
 
         setup = dict(
