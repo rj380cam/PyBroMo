@@ -623,7 +623,7 @@ class ParticlesSimulation(object):
                                              save_pos=save_pos, radial=radial,
                                              wrap_func=wrap_func)
 
-            ## Append em to the permanent storage
+            # Append em to the permanent storage
             # if total_emission, data is just a linear array
             # otherwise is a 2-D array (self.num_particles, c_size)
             em_store.append(em)
@@ -685,108 +685,171 @@ class ParticlesSimulation(object):
             names.append(node.name)
         return names
 
-    def _sim_timestamps(self, max_rate, bg_rate, emission, i_start, rs,
-                        ip_start=0, scale=10, sort=True, save_pos=False):
-        """Simulate timestamps from emission trajectories.
+    @staticmethod
+    def _timestamps_from_counts(counts, time_axis, max_rate, bg_rate,
+                                position=None, sort=True):
+        """Compute timestamps from timetraces of counts.
 
-        Uses attributes: `.t_step`.
+        This function operates on a given "group" of particles
+        (a population) and a given time chunk.
+        Number of particles is `counts.shape[0]` and number of time bins is
+        `counts.shape[1] == len(time_axis)`.
+
+        The function takes a 2D array `counts` (1 row per particle,
+        1 column per time bin), and a 1D array of times `time_axis`
+        and generates an array of timestamps where counts > 0.
+        When counts is > 1, there will be multiple identical timestamps
+        (for example if counts is 3, there will be 3 identical timestamps).
+        This function also computes particle number and (optionally)
+        particle position for each timestamp.
+
+        If `positions` is not None, returns also position of particles at each
+        timestamps. `positions` should be an array of shape
+        (num_particles, num_spatial_dims, num_time_bins) containing positions
+        for the same particles and time bins in `counts`.
 
         Returns:
-            A tuple of two arrays: timestamps and particles.
+            A tuple of 3 arrays: timestamps, particles and positions.
+
+        Notes:
+            Particles number always starts at 0, as this function is unaware
+            of the "real" particle ID. If needed, the caller should add an
+            offset to the returned particles array to obtain
+            the real particle ID.
         """
-        counts_chunk = sim_timetrace_bg(emission, max_rate, bg_rate,
-                                        self.t_step, rs=rs)
-        nrows = emission.shape[0]
-        if bg_rate is not None:
-            nrows += 1
-        assert counts_chunk.shape == (nrows, emission.shape[1])
-        max_counts = counts_chunk.max()
+        max_counts = counts.max()
         if max_counts == 0:
             return (np.array([], dtype=np.int64),    # timestamps
                     np.array([], dtype=np.int64),    # particles
                     np.array([], dtype=np.float32))  # positions
 
-        time_start = i_start * scale
-        time_stop = time_start + counts_chunk.shape[1] * scale
-        ts_range = np.arange(time_start, time_stop, scale, dtype='int64')
-
+        # These lists will contain one array per particle
+        ts_times_parlist = []
+        ts_particles_parlist = []
+        ts_positions_parlist = []
         # Loop for each particle to compute timestamps
-        times_chunk_p = []
-        par_index_chunk_p = []
-        for ip, counts_chunk_ip in enumerate(counts_chunk):
+        for ip, counts_ip in enumerate(counts):
             # Compute timestamps for particle ip for all bins with counts > 0
-            times_c_ip = []
+            ts_times_by_num_counts = []
+            ts_positions_by_num_counts = []
             for v in range(1, max_counts + 1):
-                times_c_ip.append(ts_range[counts_chunk_ip >= v])
+                mask = counts_ip >= v
+                ts_times_by_num_counts.append(time_axis[mask])
+                if position is not None:
+                    # list of 2D arrays
+                    ts_positions_by_num_counts.append(position[ip, :, mask])
 
             # Stack the timestamps from different "counts"
-            t = np.hstack(times_c_ip)
-            # Append current particle
-            times_chunk_p.append(t)
-            par_index_chunk_p.append(np.full(t.size, ip + ip_start, dtype='u1'))
-            if save_pos:
-                # TODO compute and asve positions
-                pass
+            ts = np.hstack(ts_times_by_num_counts)
+            ts_times_parlist.append(ts)
+            ts_particles_parlist.append(np.full(ts.size, ip, dtype='u1'))
+            if position is not None:
+                # concatenate 2D arrays by columns
+                pos_current_particle = np.hstack(ts_positions_by_num_counts)
+                ts_positions_parlist.append(pos_current_particle)
 
         # Merge the arrays of different particles
-        times_chunk = np.hstack(times_chunk_p)
-        par_index_chunk = np.hstack(par_index_chunk_p)
-        positions_chunk = np.zeros(
-            (times_chunk.shape[-1], self.positions.shape[1]), dtype=np.float32)
+        ts_times = np.hstack(ts_times_parlist)
+        ts_particles = np.hstack(ts_particles_parlist)
+        # ts_positions are 2D, concatenate columns
+        # (rows are spatial coordinates)
+        ts_positions = np.hstack(ts_positions_parlist)
 
         if sort:
-            # Sort timestamps inside the merged chunk
-            index_sort = times_chunk.argsort(kind='mergesort')
-            times_chunk = times_chunk[index_sort]
-            par_index_chunk = par_index_chunk[index_sort]
-            if save_pos:
-                # TODO: reorder positions
-                pass
+            # Sort merged timestamps (from all particles)
+            index_sort = ts_times.argsort(kind='mergesort')
+            ts_times = ts_times[index_sort]
+            ts_particles = ts_particles[index_sort]
+            if position is not None:
+                ts_positions = ts_positions[index_sort]
 
-        return times_chunk, par_index_chunk, positions_chunk
+        return ts_times, ts_particles, ts_positions
 
     def _sim_timestamps_populations(self, emission, max_rates, populations,
-                                    bg_rates, i_start, rs, scale=10,
-                                    save_pos=False):
+                                    bg_rates, i_start, rs,
+                                    position=None, scale=10):
+        """Simulate timestamps for all the populations of particles.
+
+        This method simulates timestamps for a time-chunk starting at
+        the trajectory index `i_start` and ending at
+        `i_start + emission.shape[1]`.
+
+        Arguments:
+            emission (array): 2D array of normalized emission rates
+                (max emission is 1).
+                Each row is a particle and each column a time step.
+                This is emission is for a time-slice starting at `i_start`
+                in the full trajectory.
+            max_rates (list): list of max emission rates in Hz for each
+                population.
+            populations (list of 2-elemnt tuples): list of populations. Each
+                population is define as a slice. For example,
+                slice(4, 7) is a population with particles 4, 5, and 6.
+                Particle IDs start at 0.
+            i_start (int): index in the full trajectory where the passed
+                `emission` array starts.
+            scale (int): factor to convert a time index to timestamps.
+                For example, if a simulation has a time-step of
+                500 nm, and scale = 10, the timestamps will increment in
+                units of 50 ns.
+            positions (None or array): array of shape
+                `(num_particles, num_spatial_dims, num_time_bins)` containing
+                particle positions for the same time chunk covered by
+                the `emission` array.
+
+        Returns:
+            3 arrays for the current time-chunk:
+            - `ts_times`: timestamps with unit `t_step / scale`
+            - `ts_particles`: particle IDs for each timestamp
+            - `ts_positions`: particle position for each timestamp
+        """
         if populations is None:
             populations = [slice(0, self.num_particles)]
+        save_pos = position is not None
 
-        # Loop for each population
-        ts_chunk_pop_list, par_index_chunk_pop_list = [], []
-        positions_chunk_pop_list = []
+        times = (i_start + np.arange(emission.shape[1], dtype='int64')) * scale
+
+        # These lists will contain one array per population
+        ts_times_poplist = []
+        ts_particles_poplist = []
+        ts_positions_poplist = []
         # Loop through populations
-        for rate, pop, bg in zip(max_rates, populations, bg_rates):
+        for max_rate, pop, bg_rate in zip(max_rates, populations, bg_rates):
             emission_pop = emission[pop]
-            ts_chunk_pop, par_index_chunk_pop, positions_pop = \
-                self._sim_timestamps(
-                    rate, bg, emission_pop, i_start, ip_start=pop.start,
-                    rs=rs, scale=scale, sort=False, save_pos=save_pos)
-
-            ts_chunk_pop_list.append(ts_chunk_pop)
-            par_index_chunk_pop_list.append(par_index_chunk_pop)
+            position_pop = position[pop] if save_pos else None
+            counts_pop = sim_counts_timetrace_with_bg(
+                emission_pop, max_rate, bg_rate, self.t_step, rs=rs)
+            ts_times_pop, ts_particles_pop, ts_positions_pop = \
+                self._timestamps_from_counts(
+                    counts_pop, times, max_rate=max_rate, bg_rate=bg_rate,
+                    sort=False, position=position_pop)
+            ts_particles_pop += pop.start
+            ts_times_poplist.append(ts_times_pop)
+            ts_particles_poplist.append(ts_particles_pop)
             if save_pos:
-                positions_chunk_pop_list.append(positions_pop)
+                ts_positions_poplist.append(ts_positions_pop)
 
         # Merge populations
-        times_chunk_s = np.hstack(ts_chunk_pop_list)
-        par_index_chunk_s = np.hstack(par_index_chunk_pop_list)
+        ts_times = np.hstack(ts_times_poplist)
+        ts_particles = np.hstack(ts_particles_poplist)
         if save_pos:
-            positions_chunk_s = np.hstack(positions_chunk_pop_list)
+            ts_positions = np.hstack(ts_positions_poplist)
+            assert ts_positions.shape[-1] == ts_times.shape[0]
 
-        # Sort timestamps inside the merged chunk
-        index_sort = times_chunk_s.argsort(kind='mergesort')
-        times_chunk_s = times_chunk_s[index_sort]
-        par_index_chunk_s = par_index_chunk_s[index_sort]
+        # Sort the merged timestamps (from all populations)
+        index_sort = ts_times.argsort(kind='mergesort')
+        ts_times = ts_times[index_sort]
+        ts_particles = ts_particles[index_sort]
         if save_pos:
-            positions_chunk_s = positions_chunk_s[index_sort]
-        return times_chunk_s, par_index_chunk_s, positions_chunk_s
+            ts_positions = ts_positions[:, index_sort]
+        return ts_times, ts_particles, ts_positions
 
     def simulate_timestamps_mix(self, max_rates, populations, bg_rate,
                                 rs=None, seed=1, chunksize=2**16,
                                 comp_filter=None, overwrite=False,
                                 skip_existing=False, scale=10, save_pos=False,
                                 path=None, t_chunksize=None, timeslice=None):
-        """Compute one timestamps array for a mixture of N populations.
+        """Compute a timestamps array for a mixture of N populations.
 
         Timestamp data are saved to disk and accessible as pytables arrays in
         `._timestamps` and `._tparticles`.
@@ -860,6 +923,7 @@ class ParticlesSimulation(object):
         bg_rates = [None] * (len(max_rates) - 1) + [bg_rate]
         prev_time = 0
         # Loop through time and for each time-slice simulate all populations
+        pos_chunk = None
         for i_start, i_end in iter_chunk_index(timeslice_size, t_chunksize):
 
             curr_time = np.around(i_start * self.t_step, decimals=0)
@@ -868,22 +932,24 @@ class ParticlesSimulation(object):
                 prev_time = curr_time
 
             em_chunk = self.emission[:, i_start:i_end]
+            if save_pos:
+                pos_chunk = self.position[:, :, i_start:i_end]
 
-            times_chunk_s, par_index_chunk_s, positions_chunk_s = \
+            ts_times_chunk, ts_particles_chunk, ts_positions_chunk = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates, populations, bg_rates, i_start,
-                    rs, scale, save_pos=save_pos)
+                    rs, scale, position=pos_chunk)
 
             # Save sorted "photons" (suffix '_s')
-            ts_list.append(times_chunk_s)
-            part_list.append(par_index_chunk_s)
-            pos_list.append(positions_chunk_s)  # it may be a list of None
+            ts_list.append(ts_times_chunk)
+            part_list.append(ts_particles_chunk)
+            pos_list.append(ts_positions_chunk)  # it may be a list of None
 
         for ts, part, pos in zip(ts_list, part_list, pos_list):
             self._timestamps.append(ts)
             self._tparticles.append(part)
             if save_pos:
-                self._tpositions.append(pos)
+                self._tpositions.append(pos.T)
 
         # Save current random state so it can be resumed in the next session
         self.ts_group._v_attrs['last_random_state'] = rs.get_state()
@@ -1001,12 +1067,12 @@ class ParticlesSimulation(object):
             times_chunk_s_d, par_index_chunk_s_d, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_d, populations, bg_rates_d, i_start,
-                    rs, scale)
+                    rs=rs, scale=scale)
 
             times_chunk_s_a, par_index_chunk_s_a, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_a, populations, bg_rates_a, i_start,
-                    rs, scale)
+                    rs=rs, scale=scale)
 
             # Save sorted timestamps (suffix '_s') and corresponding particles
             self._timestamps_d.append(times_chunk_s_d)
@@ -1132,12 +1198,12 @@ class ParticlesSimulation(object):
             times_chunk_s_d, par_index_chunk_s_d, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_d, populations, bg_rates_d, i_start,
-                    rs, scale)
+                    rs=rs, scale=scale)
 
             times_chunk_s_a, par_index_chunk_s_a, _ = \
                 self._sim_timestamps_populations(
                     em_chunk, max_rates_a, populations, bg_rates_a, i_start,
-                    rs, scale)
+                    rs=rs, scale=scale)
 
             # Save sorted timestamps (suffix '_s') and corresponding particles
             self._timestamps_d.append(times_chunk_s_d)
@@ -1159,8 +1225,11 @@ def sim_timetrace(emission, max_rate, t_step):
     return np.random.poisson(lam=emission_rates).astype(np.uint8)
 
 
-def sim_timetrace_bg(emission, max_rate, bg_rate, t_step, rs=None):
+def sim_counts_timetrace_with_bg(emission, max_rate, bg_rate, t_step, rs=None):
     """Draw random emitted photons from r.v. ~ Poisson(emission_rates).
+
+    Generate an array of counts on a binned time axis
+    for one or more particles. Optionally, adds a trace for background counts.
 
     Arguments:
         emission (2D array): array of normalized emission rates. One row per
@@ -1175,9 +1244,9 @@ def sim_timetrace_bg(emission, max_rate, bg_rate, t_step, rs=None):
 
     Returns:
         `counts` an 2D uint8 array of counts in each time bin, for each
-        particle. If `bg_rate` is None counts.shape == emission.shape.
+        particle. If `bg_rate` is None, then `counts.shape == emission.shape`.
         Otherwise, `counts` has one row more than `emission` for storing
-        the constant Poisson background.
+        the background counts.
     """
     if rs is None:
         rs = np.random.RandomState()
@@ -1197,6 +1266,7 @@ def sim_timetrace_bg(emission, max_rate, bg_rate, t_step, rs=None):
         counts[:-1] = counts_par
         counts[-1] = rs.poisson(lam=bg_rate * t_step, size=em.shape[1])
     return counts
+
 
 def sim_timetrace_bg2(emission, max_rate, bg_rate, t_step, rs=None):
     """Draw random emitted photons from r.v. ~ Poisson(emission_rates).
