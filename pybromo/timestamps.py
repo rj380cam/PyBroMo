@@ -46,7 +46,7 @@ def merge_da_multi(*da_arrays):
         merged_arrays.append(np.concatenate((donor, acceptor)))
     a_ch = np.hstack([np.zeros(donors[0].shape[0], dtype=bool),
                       np.ones(acceptors[1].shape[0], dtype=bool)])
-    index_sort = merged_arrays.argsort()
+    index_sort = merged_arrays[0].argsort()
     return [a[index_sort] for a in merged_arrays], a_ch[index_sort]
 
 
@@ -112,10 +112,12 @@ def populations_diff_coeff(particles, populations):
 
     D_list = []
     D_pop_start = 0  # start index of diffusion-based populations
+    msg = ('The populations you defined do not align with the '
+           'populations in the trajectory file.')
     for pop, (D, counts) in zip(populations, D_counts):
         D_list.append(D)
-        assert pop.start >= D_pop_start
-        assert pop.stop <= D_pop_start + counts
+        assert pop.start >= D_pop_start, msg
+        assert pop.stop <= D_pop_start + counts, msg
         D_pop_start += counts
     return D_list
 
@@ -163,7 +165,16 @@ class TimestampSimulation:
 
     def __init__(self, S, em_rates, E_values, num_particles,
                  bg_rate_d, bg_rate_a, timeslice=None):
-        assert np.sum(num_particles) <= S.num_particles
+        if np.sum(num_particles) > S.num_particles:
+            msg = (f'Wrong number of particles. \n\nWith this trajectory '
+                   f'file you can specify up to {S.num_particles} particles, '
+                   f'but you requested {np.sum(num_particles)}.')
+            raise ValueError(msg)
+        if np.sum(num_particles) < S.num_particles:
+            msg = (f'NOTE: You requested a timestamp simulation for only '
+                   f'{np.sum(num_particles)} out of the {S.num_particles} '
+                   f'available particles.')
+            print(msg)
         if timeslice is None:
             timeslice = S.t_max
         assert timeslice <= S.t_max
@@ -340,9 +351,9 @@ class TimestampSimulation:
         """Merge donor and acceptor timestamps, computes `ts`, `a_ch`, `part`.
         """
         print(' - Merging D and A timestamps', flush=True)
-        ts_d, ts_par_d, ts_pos_d = self.S.get_timestamps_data(
+        ts_d, ts_par_d, ts_pos_d = self.S.get_timestamp_data(
             self.name_timestamps_d)
-        ts_a, ts_par_a, ts_pos_a = self.S.get_timestamps_data(
+        ts_a, ts_par_a, ts_pos_a = self.S.get_timestamp_data(
             self.name_timestamps_a)
         da_pairs = [ts_d, ts_a, ts_par_d, ts_par_a]
         self.pos = None
@@ -372,7 +383,8 @@ class TimestampSimulation:
                 detectors_specs = dict(spectral_ch1 = np.atleast_1d(0),
                                        spectral_ch2 = np.atleast_1d(1))))
         if self.pos is not None:
-            photon_data['positions'] = self.pos
+            print('positio')
+            photon_data['user'] = dict(positions=self.pos)
 
         setup = dict(
             num_pixels = 2,

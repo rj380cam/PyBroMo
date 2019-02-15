@@ -261,7 +261,10 @@ class TimestampStore(BaseStore):
             if overwrite:
                 self.h5file.remove_node('/timestamps', name=name)
                 self.h5file.remove_node('/timestamps', name=name + '_par')
-                self.h5file.remove_node('/timestamps', name=name + '_pos')
+                try:
+                    self.h5file.remove_node('/timestamps', name=name + '_pos')
+                except tables.NoSuchNodeError:
+                    pass
             else:
                 msg = 'Timestamp array already exist (%s)' % name
                 raise ExistingArrayError(msg)
