@@ -261,6 +261,7 @@ class TimestampStore(BaseStore):
             if overwrite:
                 self.h5file.remove_node('/timestamps', name=name)
                 self.h5file.remove_node('/timestamps', name=name + '_par')
+                self.h5file.remove_node('/timestamps', name=name + '_pos')
             else:
                 msg = 'Timestamp array already exist (%s)' % name
                 raise ExistingArrayError(msg)
@@ -293,7 +294,7 @@ class TimestampStore(BaseStore):
             positions_array = self.h5file.create_earray(
                 '/timestamps', name + '_pos', atom=tables.Float32Atom(),
                 shape=(0, spatial_dims),
-                chunkshape=(chunksize,),
+                chunkshape=(chunksize, spatial_dims),
                 filters=comp_filter,
                 title='Particle position for each timestamp')
             positions_array.set_attr('PyBroMo', __version__)

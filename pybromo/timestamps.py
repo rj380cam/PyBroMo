@@ -18,6 +18,38 @@ from ._version import get_versions
 __version__ = get_versions()['version']
 
 
+def merge_da_multi(*da_arrays):
+    """Merge multiple pairs of donor-acceptor arrays. Sort by the first pair.
+
+    Takes any number of D-A array pairs as input. Arrays are concatenated
+    along the first axis. In each pair, arrays must be both 1D or
+    must have the same shape except for the first dimension.
+    The first arrays in each pair must have the same size along the first
+    dimension. The same must hold for all the second arrays in each pair.
+
+    Parameters:
+        da_arrays (list of array): even number of arrays. Each consecutive
+            is concatenated. The first merged pair is used for sorting
+            all the other merged pairs.
+
+    Returns:
+        A 2-tuple:
+        - List of merged arrays. The number of arrays is `len(da_arrays) / 2`.
+        - Bool mask for selecting acceptors in the merged arrays.
+    """
+    donors = da_arrays[:-1:2]
+    acceptors = da_arrays[1::2]
+    assert all([x.shape[0] == donors[0].shape[0] for x in donors])
+    assert all([x.shape[0] == acceptors[0].shape[0] for x in acceptors])
+    merged_arrays = []
+    for donor, acceptor in zip(donors, acceptors):
+        merged_arrays.append(np.concatenate((donor, acceptor)))
+    a_ch = np.hstack([np.zeros(donors[0].shape[0], dtype=bool),
+                      np.ones(acceptors[1].shape[0], dtype=bool)])
+    index_sort = merged_arrays.argsort()
+    return [a[index_sort] for a in merged_arrays], a_ch[index_sort]
+
+
 def merge_da(ts_d, ts_par_d, ts_a, ts_par_a):
     """Merge donor and acceptor timestamps and particle arrays.
 
@@ -147,7 +179,7 @@ class TimestampSimulation:
                       bg_rate_a=bg_rate_a, timeslice=timeslice,
                       em_rates_d=em_rates_d, em_rates_a=em_rates_a,
                       D_values=D_values, populations=populations,
-                      traj_filename=S.store.filepath.name)
+                      traj_filename=S.store.filepath.name, save_pos=False)
 
         for k, v in params.items():
             setattr(self, k, v)
@@ -214,11 +246,11 @@ class TimestampSimulation:
         self.hash_a = self.hash_d
 
     def run(self, rs, overwrite=True, skip_existing=False, path=None,
-            chunksize=None):
+            chunksize=None, save_pos=False):
         """Compute timestamps for current populations.
 
-        This method simulate timestamps separately for donor and acceptor,
-        simulating two different Poisson processes. This requires going
+        This method simulates timestamps separately for donor and acceptor,
+        using two independent Poisson processes. This requires going
         through the trajectory file twice which is slower but more flexible
         than a single-pass.
 
@@ -226,7 +258,7 @@ class TimestampSimulation:
         """
         if path is None:
             path = str(self.S.store.filepath.parent)
-        kwargs = dict(rs=rs, overwrite=overwrite, path=path,
+        kwargs = dict(rs=rs, overwrite=overwrite, path=path, save_pos=save_pos,
                       timeslice=self.timeslice, skip_existing=skip_existing)
         if chunksize is not None:
             kwargs['chunksize'] = chunksize
@@ -244,7 +276,7 @@ class TimestampSimulation:
         # Acceptor timestamps hash is from 'last_random_state' attribute
         # of the donor timestamps. This allows deterministic generation of
         # donor + acceptor timestamps given the input random state.
-        ts_d, _ = self.S.get_timestamps_part(self.name_timestamps_d)
+        ts_d, _, _ = self.S.get_timestamp_data(self.name_timestamps_d)
         rs.set_state(ts_d.attrs['last_random_state'])
         self.hash_a = hash_(rs.get_state())[:6]   # needed by merge_da()
         print('\n%s Acceptor timestamps - %s' % (header, ctime()), flush=True)
@@ -253,21 +285,22 @@ class TimestampSimulation:
             max_rates=self.em_rates_a,
             bg_rate=self.bg_rate_a,
             **kwargs)
+        self.save_pos = save_pos
         print('\n%s Completed. %s' % (header, ctime()), flush=True)
 
     def run_da(self, rs, overwrite=True, skip_existing=False, path=None,
                chunksize=None):
         """Compute timestamps for current populations.
 
-        This method simulate timestamps for donor and acceptor from a single
-        Poisson process, then splitting D and A photons with according to a
+        This method simulates timestamps for donor and acceptor from a single
+        Poisson process, then splits D and A photons according to a
         Binomial distribution. This requires going through the trajectory
         file only once but is more limited than independent simulations
         for D and A as done by :meth:`run`.
 
         See also :meth:`run`.
         """
-
+        self.save_pos = False
         if path is None:
             path = str(self.S.store.filepath.parent)
         kwargs = dict(rs=rs, overwrite=overwrite, path=path,
@@ -307,9 +340,19 @@ class TimestampSimulation:
         """Merge donor and acceptor timestamps, computes `ts`, `a_ch`, `part`.
         """
         print(' - Merging D and A timestamps', flush=True)
-        ts_d, ts_par_d = self.S.get_timestamps_part(self.name_timestamps_d)
-        ts_a, ts_par_a = self.S.get_timestamps_part(self.name_timestamps_a)
-        ts, a_ch, part = merge_da(ts_d, ts_par_d, ts_a, ts_par_a)
+        ts_d, ts_par_d, ts_pos_d = self.S.get_timestamps_data(
+            self.name_timestamps_d)
+        ts_a, ts_par_a, ts_pos_a = self.S.get_timestamps_data(
+            self.name_timestamps_a)
+        da_pairs = [ts_d, ts_a, ts_par_d, ts_par_a]
+        self.pos = None
+        if ts_pos_d is not None and ts_pos_a is not None:
+            da_pairs.extend([ts_pos_d, ts_pos_a])
+            (ts, part, pos), a_ch = merge_da_multi(*da_pairs)
+            self.pos = pos
+        else:
+            (ts, part), a_ch = merge_da_multi(*da_pairs)
+
         assert a_ch.sum() == ts_a.shape[0]
         assert (~a_ch).sum() == ts_d.shape[0]
         assert a_ch.size == ts_a.shape[0] + ts_d.shape[0]
@@ -328,6 +371,8 @@ class TimestampSimulation:
                 measurement_type = 'smFRET',
                 detectors_specs = dict(spectral_ch1 = np.atleast_1d(0),
                                        spectral_ch2 = np.atleast_1d(1))))
+        if self.pos is not None:
+            photon_data['positions'] = self.pos
 
         setup = dict(
             num_pixels = 2,
