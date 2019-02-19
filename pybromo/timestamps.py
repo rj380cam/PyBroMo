@@ -18,6 +18,38 @@ from ._version import get_versions
 __version__ = get_versions()['version']
 
 
+def merge_da_multi(*da_arrays):
+    """Merge multiple pairs of donor-acceptor arrays. Sort by the first pair.
+
+    Takes any number of D-A array pairs as input. Arrays are concatenated
+    along the first axis. In each pair, arrays must be both 1D or
+    must have the same shape except for the first dimension.
+    The first arrays in each pair must have the same size along the first
+    dimension. The same must hold for all the second arrays in each pair.
+
+    Parameters:
+        da_arrays (list of array): even number of arrays. Each consecutive
+            is concatenated. The first merged pair is used for sorting
+            all the other merged pairs.
+
+    Returns:
+        A 2-tuple:
+        - List of merged arrays. The number of arrays is `len(da_arrays) / 2`.
+        - Bool mask for selecting acceptors in the merged arrays.
+    """
+    donors = da_arrays[:-1:2]
+    acceptors = da_arrays[1::2]
+    assert all([x.shape[0] == donors[0].shape[0] for x in donors])
+    assert all([x.shape[0] == acceptors[0].shape[0] for x in acceptors])
+    merged_arrays = []
+    for donor, acceptor in zip(donors, acceptors):
+        merged_arrays.append(np.concatenate((donor, acceptor)))
+    a_ch = np.hstack([np.zeros(donors[0].shape[0], dtype=bool),
+                      np.ones(acceptors[1].shape[0], dtype=bool)])
+    index_sort = merged_arrays[0].argsort()
+    return [a[index_sort] for a in merged_arrays], a_ch[index_sort]
+
+
 def merge_da(ts_d, ts_par_d, ts_a, ts_par_a):
     """Merge donor and acceptor timestamps and particle arrays.
 
@@ -69,34 +101,37 @@ def em_rates_from_E_DA_mix(em_rates_tot, E_values):
     return em_rates_d, em_rates_a
 
 
-def populations_diff_coeff(particles, populations):
-    """Diffusion coefficients of the two specified populations.
+def populations_diff_coeff(particles, num_particles_per_population=None):
+    """Return a list of diffusion coefficients for the specified populations.
+
+    Arguments:
+        particles (pybromo.Particles): object containing all the particles.
+        num_particles_per_population (sequence of integers): defines how many
+            particles to use.
     """
     D_counts = particles.diffusion_coeff_counts
+    if num_particles_per_population is None:
+        num_particles_per_population = particles.particles_counts
+    populations = particles.num_particles_to_slices(
+        num_particles_per_population)
+
+    # We can have only one diffusion coefficient (one population in `particles`)
+    # but now we creating populations based on different photo-physics.
+    # Here handle this case:
     if len(D_counts) == 1:
-        pop_sizes = [pop.stop - pop.start for pop in populations]
-        assert D_counts[0][1] >= sum(pop_sizes)
-        D_counts = [(D_counts[0][0], ps) for ps in pop_sizes]
+        assert D_counts[0][1] >= sum(num_particles_per_population)
+        D_counts = [(D_counts[0][0], ps) for ps in num_particles_per_population]
 
     D_list = []
     D_pop_start = 0  # start index of diffusion-based populations
+    msg = ('The populations sizes you asked for do not align with the '
+           'populations in the trajectory file.')
     for pop, (D, counts) in zip(populations, D_counts):
         D_list.append(D)
-        assert pop.start >= D_pop_start
-        assert pop.stop <= D_pop_start + counts
+        assert pop.start >= D_pop_start, msg
+        assert pop.stop <= D_pop_start + counts, msg
         D_pop_start += counts
     return D_list
-
-
-def populations_slices(particles, num_pop_list):
-    """2-tuple of slices for selection of two populations.
-    """
-    slices = []
-    i_prev = 0
-    for num_pop in num_pop_list:
-        slices.append(slice(i_prev, i_prev + num_pop))
-        i_prev += num_pop
-    return slices
 
 
 class TimestampSimulation:
@@ -131,14 +166,37 @@ class TimestampSimulation:
 
     def __init__(self, S, em_rates, E_values, num_particles,
                  bg_rate_d, bg_rate_a, timeslice=None):
-        assert np.sum(num_particles) <= S.num_particles
+        """
+        Arguments:
+            S (pybromo.ParticlesSimulation): the diffusion simulation object.
+            em_rates (list of floats): peak emission rate (cps) for each
+                population. Note this is includes the detection losses.
+            E_values (list of float): FRET efficiency per population.
+                To simulate gamma != 1, use the raw FRET efficiency.
+            num_particles (list of ints): number of particles in each
+                population.
+            bg_rate_d (float): Poisson background rate in the Donor channel
+            bg_rate_a (float): Poisson background rate in the Acceptor channel
+            timeslice (float): optional max time, used to truncate the
+                diffusion simulation and use a smaller duration.
+        """
+        if np.sum(num_particles) > S.num_particles:
+            msg = (f'Wrong number of particles. \n\nWith this trajectory '
+                   f'file you can specify up to {S.num_particles} particles, '
+                   f'but you requested {np.sum(num_particles)}.')
+            raise ValueError(msg)
+        if np.sum(num_particles) < S.num_particles:
+            msg = (f'NOTE: You requested a timestamp simulation for only '
+                   f'{np.sum(num_particles)} out of the {S.num_particles} '
+                   f'available particles.')
+            print(msg)
         if timeslice is None:
             timeslice = S.t_max
         assert timeslice <= S.t_max
 
         em_rates_d, em_rates_a = em_rates_from_E_DA_mix(em_rates, E_values)
-        populations = populations_slices(S.particles, num_particles)
-        D_values = populations_diff_coeff(S.particles, populations)
+        populations = S.particles.num_particles_to_slices(num_particles)
+        D_values = populations_diff_coeff(S.particles, num_particles)
         assert (len(em_rates) == len(E_values) == len(num_particles) ==
                 len(populations) == len(D_values))
 
@@ -147,7 +205,7 @@ class TimestampSimulation:
                       bg_rate_a=bg_rate_a, timeslice=timeslice,
                       em_rates_d=em_rates_d, em_rates_a=em_rates_a,
                       D_values=D_values, populations=populations,
-                      traj_filename=S.store.filepath.name)
+                      traj_filename=S.store.filepath.name, save_pos=False)
 
         for k, v in params.items():
             setattr(self, k, v)
@@ -214,11 +272,11 @@ class TimestampSimulation:
         self.hash_a = self.hash_d
 
     def run(self, rs, overwrite=True, skip_existing=False, path=None,
-            chunksize=None):
+            chunksize=None, save_pos=False):
         """Compute timestamps for current populations.
 
-        This method simulate timestamps separately for donor and acceptor,
-        simulating two different Poisson processes. This requires going
+        This method simulates timestamps separately for donor and acceptor,
+        using two independent Poisson processes. This requires going
         through the trajectory file twice which is slower but more flexible
         than a single-pass.
 
@@ -226,7 +284,7 @@ class TimestampSimulation:
         """
         if path is None:
             path = str(self.S.store.filepath.parent)
-        kwargs = dict(rs=rs, overwrite=overwrite, path=path,
+        kwargs = dict(rs=rs, overwrite=overwrite, path=path, save_pos=save_pos,
                       timeslice=self.timeslice, skip_existing=skip_existing)
         if chunksize is not None:
             kwargs['chunksize'] = chunksize
@@ -244,7 +302,7 @@ class TimestampSimulation:
         # Acceptor timestamps hash is from 'last_random_state' attribute
         # of the donor timestamps. This allows deterministic generation of
         # donor + acceptor timestamps given the input random state.
-        ts_d, _ = self.S.get_timestamps_part(self.name_timestamps_d)
+        ts_d, _, _ = self.S.get_timestamp_data(self.name_timestamps_d)
         rs.set_state(ts_d.attrs['last_random_state'])
         self.hash_a = hash_(rs.get_state())[:6]   # needed by merge_da()
         print('\n%s Acceptor timestamps - %s' % (header, ctime()), flush=True)
@@ -253,21 +311,22 @@ class TimestampSimulation:
             max_rates=self.em_rates_a,
             bg_rate=self.bg_rate_a,
             **kwargs)
+        self.save_pos = save_pos
         print('\n%s Completed. %s' % (header, ctime()), flush=True)
 
     def run_da(self, rs, overwrite=True, skip_existing=False, path=None,
                chunksize=None):
         """Compute timestamps for current populations.
 
-        This method simulate timestamps for donor and acceptor from a single
-        Poisson process, then splitting D and A photons with according to a
+        This method simulates timestamps for donor and acceptor from a single
+        Poisson process, then splits D and A photons according to a
         Binomial distribution. This requires going through the trajectory
         file only once but is more limited than independent simulations
         for D and A as done by :meth:`run`.
 
         See also :meth:`run`.
         """
-
+        self.save_pos = False
         if path is None:
             path = str(self.S.store.filepath.parent)
         kwargs = dict(rs=rs, overwrite=overwrite, path=path,
@@ -307,9 +366,19 @@ class TimestampSimulation:
         """Merge donor and acceptor timestamps, computes `ts`, `a_ch`, `part`.
         """
         print(' - Merging D and A timestamps', flush=True)
-        ts_d, ts_par_d = self.S.get_timestamps_part(self.name_timestamps_d)
-        ts_a, ts_par_a = self.S.get_timestamps_part(self.name_timestamps_a)
-        ts, a_ch, part = merge_da(ts_d, ts_par_d, ts_a, ts_par_a)
+        ts_d, ts_par_d, ts_pos_d = self.S.get_timestamp_data(
+            self.name_timestamps_d)
+        ts_a, ts_par_a, ts_pos_a = self.S.get_timestamp_data(
+            self.name_timestamps_a)
+        da_pairs = [ts_d, ts_a, ts_par_d, ts_par_a]
+        self.pos = None
+        if ts_pos_d is not None and ts_pos_a is not None:
+            da_pairs.extend([ts_pos_d, ts_pos_a])
+            (ts, part, pos), a_ch = merge_da_multi(*da_pairs)
+            self.pos = pos
+        else:
+            (ts, part), a_ch = merge_da_multi(*da_pairs)
+
         assert a_ch.sum() == ts_a.shape[0]
         assert (~a_ch).sum() == ts_d.shape[0]
         assert a_ch.size == ts_a.shape[0] + ts_d.shape[0]
@@ -328,6 +397,9 @@ class TimestampSimulation:
                 measurement_type = 'smFRET',
                 detectors_specs = dict(spectral_ch1 = np.atleast_1d(0),
                                        spectral_ch2 = np.atleast_1d(1))))
+        if self.pos is not None:
+            print('Saving particle positions in /photon_data/user/positions')
+            photon_data['user'] = dict(positions=self.pos)
 
         setup = dict(
             num_pixels = 2,

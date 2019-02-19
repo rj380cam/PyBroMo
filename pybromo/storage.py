@@ -255,11 +255,16 @@ class TimestampStore(BaseStore):
     def add_timestamps(self, name, clk_p, max_rates, bg_rate,
                        num_particles, bg_particle, populations=None,
                        overwrite=False, chunksize=2**16,
-                       comp_filter=default_compression):
+                       comp_filter=default_compression, save_pos=False,
+                       spatial_dims=None):
         if name in self.h5file.root.timestamps:
             if overwrite:
                 self.h5file.remove_node('/timestamps', name=name)
                 self.h5file.remove_node('/timestamps', name=name + '_par')
+                try:
+                    self.h5file.remove_node('/timestamps', name=name + '_pos')
+                except tables.NoSuchNodeError:
+                    pass
             else:
                 msg = 'Timestamp array already exist (%s)' % name
                 raise ExistingArrayError(msg)
@@ -286,7 +291,18 @@ class TimestampStore(BaseStore):
         particles_array.set_attr('bg_particle', bg_particle)
         particles_array.set_attr('PyBroMo', __version__)
         particles_array.set_attr('creation_time', current_time())
-        return times_array, particles_array
+        positions_array = None
+        if save_pos:
+            assert spatial_dims is not None, 'You need to pass `spatial_dims`.'
+            positions_array = self.h5file.create_earray(
+                '/timestamps', name + '_pos', atom=tables.Float32Atom(),
+                shape=(0, spatial_dims),
+                chunkshape=(chunksize, spatial_dims),
+                filters=comp_filter,
+                title='Particle position for each timestamp')
+            positions_array.set_attr('PyBroMo', __version__)
+            positions_array.set_attr('creation_time', current_time())
+        return times_array, particles_array, positions_array
 
 
 if __name__ == '__main__':
