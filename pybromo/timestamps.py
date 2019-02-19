@@ -101,18 +101,30 @@ def em_rates_from_E_DA_mix(em_rates_tot, E_values):
     return em_rates_d, em_rates_a
 
 
-def populations_diff_coeff(particles, populations):
-    """Diffusion coefficients of the two specified populations.
+def populations_diff_coeff(particles, num_particles_per_population=None):
+    """Return a list of diffusion coefficients for the specified populations.
+
+    Arguments:
+        particles (pybromo.Particles): object containing all the particles.
+        num_particles_per_population (sequence of integers): defines how many
+            particles to use.
     """
     D_counts = particles.diffusion_coeff_counts
+    if num_particles_per_population is None:
+        num_particles_per_population = particles.particles_counts
+    populations = particles.num_particles_to_slices(
+        num_particles_per_population)
+
+    # We can have only one diffusion coefficient (one population in `particles`)
+    # but now we creating populations based on different photo-physics.
+    # Here handle this case:
     if len(D_counts) == 1:
-        pop_sizes = [pop.stop - pop.start for pop in populations]
-        assert D_counts[0][1] >= sum(pop_sizes)
-        D_counts = [(D_counts[0][0], ps) for ps in pop_sizes]
+        assert D_counts[0][1] >= sum(num_particles_per_population)
+        D_counts = [(D_counts[0][0], ps) for ps in num_particles_per_population]
 
     D_list = []
     D_pop_start = 0  # start index of diffusion-based populations
-    msg = ('The populations you defined do not align with the '
+    msg = ('The populations sizes you asked for do not align with the '
            'populations in the trajectory file.')
     for pop, (D, counts) in zip(populations, D_counts):
         D_list.append(D)
@@ -120,17 +132,6 @@ def populations_diff_coeff(particles, populations):
         assert pop.stop <= D_pop_start + counts, msg
         D_pop_start += counts
     return D_list
-
-
-def populations_slices(particles, num_pop_list):
-    """2-tuple of slices for selection of two populations.
-    """
-    slices = []
-    i_prev = 0
-    for num_pop in num_pop_list:
-        slices.append(slice(i_prev, i_prev + num_pop))
-        i_prev += num_pop
-    return slices
 
 
 class TimestampSimulation:
@@ -165,6 +166,20 @@ class TimestampSimulation:
 
     def __init__(self, S, em_rates, E_values, num_particles,
                  bg_rate_d, bg_rate_a, timeslice=None):
+        """
+        Arguments:
+            S (pybromo.ParticlesSimulation): the diffusion simulation object.
+            em_rates (list of floats): peak emission rate (cps) for each
+                population. Note this is includes the detection losses.
+            E_values (list of float): FRET efficiency per population.
+                To simulate gamma != 1, use the raw FRET efficiency.
+            num_particles (list of ints): number of particles in each
+                population.
+            bg_rate_d (float): Poisson background rate in the Donor channel
+            bg_rate_a (float): Poisson background rate in the Acceptor channel
+            timeslice (float): optional max time, used to truncate the
+                diffusion simulation and use a smaller duration.
+        """
         if np.sum(num_particles) > S.num_particles:
             msg = (f'Wrong number of particles. \n\nWith this trajectory '
                    f'file you can specify up to {S.num_particles} particles, '
@@ -180,8 +195,8 @@ class TimestampSimulation:
         assert timeslice <= S.t_max
 
         em_rates_d, em_rates_a = em_rates_from_E_DA_mix(em_rates, E_values)
-        populations = populations_slices(S.particles, num_particles)
-        D_values = populations_diff_coeff(S.particles, populations)
+        populations = S.particles.num_particles_to_slices(num_particles)
+        D_values = populations_diff_coeff(S.particles, num_particles)
         assert (len(em_rates) == len(E_values) == len(num_particles) ==
                 len(populations) == len(D_values))
 

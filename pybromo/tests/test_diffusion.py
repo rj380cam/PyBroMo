@@ -10,7 +10,42 @@ import json
 
 import pybromo as pbm
 
+
 _SEED = 2345654342
+
+
+# - GLOBAL SIMULATION PARAMETERS - - - - - - - - - - - - - - - - - - - - - - -
+
+# Diffusion parameters
+t_step = 0.5e-6   # (seconds) diffusion simulation time step
+t_max = 1         # (seconds) time duration of the diffusion simulation
+
+# Diffusion coefficients
+Du = 12.0            # um^2 / s
+D1 = Du*(1e-6)**2    # m^2 / s
+D2 = D1/2
+
+# Simulation box
+box = pbm.Box(x1=-4.e-6, x2=4.e-6, y1=-4.e-6, y2=4.e-6, z1=-6e-6, z2=6e-6)
+
+# PSF definition
+psf = pbm.NumericPSF()
+
+# Particles populations
+particles_specs = dict(
+    # Parameters needed for the diffusion simulation
+    num_particles=(1, 3),   # number of particles in each population
+    D=(D1, D2),             # (m^2 / s) diffusion coefficiens per population
+    box=box,                # simulation box
+
+    # Photo-physics parameters (needed only for timestamps simulation)
+    E_values=(0.75, 0.25),     # FRET efficiencies for each population
+    em_rates=(200e3, 300e3),   # Peak D+A emission rates (cps) per population
+
+    # Backgroung rates (needed for timestamps simulation)
+    bg_rate_d=1500,           # Poisson background rate (cps) Donor channel
+    bg_rate_a=800,            # Poisson background rate (cps) Acceptor channel
+    )
 
 
 def randomstate_equal(rs1, rs2):
@@ -32,16 +67,13 @@ def randomstate_equal(rs1, rs2):
 
 def create_diffusion_sim():
     rs = np.random.RandomState(_SEED)
-    Du = 12.0            # um^2 / s
-    D = Du * (1e-6)**2    # m^2 / s
-    box = pbm.Box(x1=-4.e-6, x2=4.e-6, y1=-4.e-6, y2=4.e-6, z1=-6e-6, z2=6e-6)
-    psf = pbm.NumericPSF()
-    P = pbm.Particles(num_particles=100, D=D, box=box, rs=rs)
-    t_step = 0.5e-6
-    t_max = 0.1
+    specs = {k: v for k, v in particles_specs.items()
+             if k in ['num_particles', 'D', 'box']}
+    P = pbm.Particles.from_specs(**specs, rs=rs)
+
     S = pbm.ParticlesSimulation(t_step=t_step, t_max=t_max,
                                 particles=P, box=box, psf=psf)
-    S.simulate_diffusion(save_pos=True, total_emission=False, radial=True,
+    S.simulate_diffusion(save_pos=True, total_emission=False, radial=False,
                          rs=rs)
     S.store.close()
     return S.hash()[:6]
@@ -70,11 +102,17 @@ def test_Particle():
 
 def test_Particles():
     rs = np.random.RandomState(_SEED)
-    box = pbm.Box(x1=-4.e-6, x2=4.e-6, y1=-4.e-6, y2=4.e-6, z1=-6e-6, z2=6e-6)
-    D1 = 12e-12
-    D2 = D1 / 2
     P = pbm.Particles(num_particles=20, D=D1, box=box, rs=rs)
     P.add(num_particles=15, D=D2)
+    assert P.particles_counts == [20, 15]
+    assert P.num_populations == 2
+    assert P.diffusion_coeff_counts == [(D1, 20), (D2, 15)]
+    with pytest.raises(ValueError):
+        P.add(num_particles=1, D=D1)
+    x1 = P.num_particles_to_slices((7, 8))
+    x2 = [slice(0, 7, None), slice(7, 7+8, None)]
+    for s1, s2 in zip(x1, x2):
+        assert s1 == s2
 
     Di, counts = zip(*P.diffusion_coeff_counts)
     rs2 = np.random.RandomState()
@@ -95,28 +133,20 @@ def test_Particles():
     P3 = pbm.Particles.from_json(P_json)
     assert P.to_list() == P3.to_list()
 
+    # Test alternative constructor
+    rs = np.random.RandomState(_SEED)
+    P4 = pbm.Particles.from_specs(
+        num_particles=(20, 15), D=(D1, D2), box=box, rs=rs)
+    assert P4.to_list() == P2_list
+
 
 def test_diffusion_sim_random_state():
     # Initialize the random state
     rs = np.random.RandomState(_SEED)
 
-    # Diffusion coefficient
-    Du = 12.0            # um^2 / s
-    D1 = Du * (1e-6)**2    # m^2 / s
-    D2 = D1 / 2
-
-    # Simulation box definition
-    box = pbm.Box(x1=-4.e-6, x2=4.e-6, y1=-4.e-6, y2=4.e-6, z1=-6e-6, z2=6e-6)
-
-    # PSF definition
-    psf = pbm.NumericPSF()
-
     # Particles definition
-    P = pbm.Particles(num_particles=20, D=D1, box=box, rs=rs)
-    P.add(num_particles=15, D=D2)
-
-    # Simulation time step (seconds)
-    t_step = 0.5e-6
+    P = pbm.Particles.from_specs(
+        num_particles=(5, 7), D=(D1, D2), box=box, rs=rs)
 
     # Time duration of the simulation (seconds)
     t_max = 0.01
@@ -136,15 +166,11 @@ def test_diffusion_sim_random_state():
     saved_rs = S.traj_group._v_attrs['last_random_state']
     assert randomstate_equal(saved_rs, rs_postdiffusion)
 
+
 def test_diffusion_sim_core():
     # Initialize the random state
     rs = np.random.RandomState(_SEED)
-    Du = 12.0            # um^2 / s
-    D = Du * (1e-6)**2    # m^2 / s
-    box = pbm.Box(x1=-4.e-6, x2=4.e-6, y1=-4.e-6, y2=4.e-6, z1=-6e-6, z2=6e-6)
-    psf = pbm.NumericPSF()
-    P = pbm.Particles(num_particles=100, D=D, box=box, rs=rs)
-    t_step = 0.5e-6
+    P = pbm.Particles(num_particles=100, D=D1, box=box, rs=rs)
     t_max = 0.001
     time_size = t_max / t_step
     assert t_max < 1e4
@@ -162,15 +188,15 @@ def test_diffusion_sim_core():
 
     POS, em = sim
     POS = np.concatenate(POS, axis=0)
-    #x, y, z = POS[:, :, 0], POS[:, :, 1], POS[:, :, 2]
-    #r_squared = x**2 + y**2 + z**2
+    # x, y, z = POS[:, :, 0], POS[:, :, 1], POS[:, :, 2]
+    # r_squared = x**2 + y**2 + z**2
 
     DR = np.diff(POS, axis=2)
     dx, dy, dz = DR[:, :, 0], DR[:, :, 1], DR[:, :, 2]
     dr_squared = dx**2 + dy**2 + dz**2
 
     D_fitted = dr_squared.mean() / (6 * t_max)  # Fitted diffusion coefficient
-    assert np.abs(D - D_fitted) < 0.01
+    assert np.abs(D1 - D_fitted) < 0.01
 
 
 def test_simulate_timestamps():
@@ -179,7 +205,7 @@ def test_simulate_timestamps():
 
     rs = np.random.RandomState(_SEED)
     kw = dict(max_rates=(400e3,), populations=(slice(0, 35),), bg_rate=1000,
-              rs=rs)
+              rs=rs, save_pos=True)
     S.simulate_timestamps_mix(**kw)
 
     # The following two cases should not throw an error
@@ -195,16 +221,17 @@ def test_simulate_timestamps():
               rs=np.random.RandomState(_SEED))
     S.simulate_timestamps_mix(**kw)
 
-    # This shoudl throw an ExistingArrayError
+    # This should throw an ExistingArrayError
     kw.update(overwrite=False, skip_existing=False,
               rs=np.random.RandomState(_SEED))
     with pytest.raises(pbm.storage.ExistingArrayError):
         S.simulate_timestamps_mix(**kw)
 
-    # But with a different initial random state shoud succeede
+    # But with a different initial random state should succeed
     kw.pop('rs')
     S.simulate_timestamps_mix(**kw)
     S.store.close()
+
 
 def test_TimestampSimulation():
     hash_ = create_diffusion_sim()
@@ -213,7 +240,7 @@ def test_TimestampSimulation():
     params = dict(
         em_rates = (400e3,),    # Peak emission rates (cps) for each population (D+A)
         E_values = (0.75,),     # FRET efficiency for each population
-        num_particles = (35,),  # Number of particles in each population
+        num_particles = (1,),   # Number of particles in each population
         bg_rate_d = 1400,       # Poisson background rate (cps) Donor channel
         bg_rate_a = 800,        # Poisson background rate (cps) Acceptor channel
         )

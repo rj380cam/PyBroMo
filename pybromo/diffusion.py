@@ -104,6 +104,45 @@ class Particles(object):
         return [Particle(D=D, x0=x0, y0=y0, z0=z0)
                 for x0, y0, z0 in zip(X0, Y0, Z0)]
 
+    @staticmethod
+    def from_specs(num_particles, D, box, rs=None, seed=1):
+        """
+        Create particles populations in a single-step.
+
+        Arguments:
+            num_particles (sequence): contains the number of particles
+                in each population
+            D (sequence): contains the diffusion. coefficient (m^2 / s)
+                for each population.
+            box (pybromo.Box): object defining the simulation box.
+            rs (np.RandomState): numpy's RandomState used for initialization
+                of the random number generator. If None, use a random state
+                initialized from `seed`.
+            seed (uint): when `rs` is None, `seed` is used to initialize the
+                random state. `seed` is ignored when `rs` is not None.
+        """
+        msg = 'The sequence `num_particles` must have length >= 1.'
+        assert len(num_particles) > 0, msg
+        msg = 'ERROR: `num_particles` and `D` must have the same length.'
+        assert len(num_particles) == len(D), msg
+        P = Particles(num_particles[0], D[0], box, rs=rs, seed=seed)
+        for num_particle, D in zip(num_particles[1:], D[1:]):
+            P.add(num_particles=num_particle, D=D)
+        return P
+
+    @staticmethod
+    def num_particles_to_slices(num_particles_per_population):
+        """
+        Convert a list of number of particles per population
+        into a list of `slice` object, each indexing a population.
+        """
+        slices = []
+        i_prev = 0
+        for num_particles in num_particles_per_population:
+            slices.append(slice(i_prev, i_prev + num_particles))
+            i_prev += num_particles
+        return slices
+
     def __init__(self, num_particles, D, box, rs=None, seed=1, particles=None):
         """A set of `N` Particle() objects with random position in `box`.
 
@@ -132,8 +171,11 @@ class Particles(object):
     def add(self, num_particles, D):
         """Add particles with diffusion coefficient `D` at random positions.
         """
-        self._plist += self._generate(num_particles, D, box=self.box,
-                                      rs=self.rs)
+        if D in self.diffusion_coeff:
+            msg = ('A population with this diffusion coefficient is already '
+                   'present. Change diffusion coefficient to add a new population.')
+            raise ValueError(msg)
+        self._plist += self._generate(num_particles, D, box=self.box, rs=self.rs)
 
     def to_list(self):
         return self._plist.copy()
@@ -172,13 +214,23 @@ class Particles(object):
         return np.array([par.D for par in self])
 
     @property
+    def num_populations(self):
+        """Number of populations with different diffusion coefficient."""
+        return len(self.particles_counts)
+
+    @property
+    def particles_counts(self):
+        """Number of particles in each population."""
+        return [c[1] for c in self.diffusion_coeff_counts]
+
+    @property
     def diffusion_coeff_counts(self):
         """List of tuples of (diffusion coefficient, counts) pairs.
 
         The order of the diffusion coefficients is as in self.diffusion_coeff.
         """
-        return [(key, len(list(group)))
-                for key, group in itertools.groupby(self.diffusion_coeff)]
+        return [(diff_coeff, len(list(group)))
+                for diff_coeff, group in itertools.groupby(self.diffusion_coeff)]
 
     def short_repr(self):
         s = ["P%d_D%.2g" % (n, D) for D, n in self.diffusion_coeff_counts]
@@ -646,8 +698,8 @@ class ParticlesSimulation(object):
             populations = [slice(0, self.num_particles)]
         s = []
         for ipop, (max_rate, pop) in enumerate(zip(max_rates, populations)):
-            kw = dict(npop = ipop + 1, max_rate = max_rate,
-                      npart = pop.stop - pop.start, pop=pop, bg_rate=bg_rate)
+            kw = dict(npop=ipop + 1, max_rate=max_rate,
+                      npart=pop.stop - pop.start, pop=pop, bg_rate=bg_rate)
             s.append('Pop{npop}_P{npart}_Pstart{pop.start}_'
                      'max_rate{max_rate:.0f}cps_BG{bg_rate:.0f}cps'
                      .format(**kw))
