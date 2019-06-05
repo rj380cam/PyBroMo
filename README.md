@@ -146,9 +146,11 @@ simulation (they don't require PyBroMo):
 
 # Acknowledgements
 
+Release 0.8 was sponsored by Dr. Eitan Lerner of the Department of Biological Chemistry, in the Alexander Silberman Institute of Life Sciences, The Hebrew University of Jerusalem.
+
 I wish to thank Xavier Michalet for useful discussions.
 
-This work was supported by NIH grants R01 GM069709 and R01 GM095904.
+This work was initially supported by NIH grants R01 GM069709 and R01 GM095904.
 
 # License
 
