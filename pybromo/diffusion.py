@@ -289,6 +289,8 @@ class ParticlesSimulation(object):
     @staticmethod
     def from_datafile(hash_, path='./', ignore_timestamps=False, mode='r'):
         """Load simulation from disk trajectories and (when present) timestamps.
+
+        `mode` is only applied for opening a prexisting timestamp file.
         """
         path = Path(path)
         assert path.exists()
