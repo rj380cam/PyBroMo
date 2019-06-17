@@ -155,7 +155,7 @@ def test_diffusion_sim_random_state():
 
         rs_prediffusion = rs.get_state()
         S.simulate_diffusion(total_emission=False, save_pos=True, verbose=True,
-                            rs=rs, chunksize=2**13, chunkslice='times')
+                             rs=rs, chunksize=2**13, chunkslice='times')
         rs_postdiffusion = rs.get_state()
 
         # Test diffusion random states
@@ -163,39 +163,47 @@ def test_diffusion_sim_random_state():
         assert randomstate_equal(saved_rs, rs_prediffusion)
         saved_rs = S.traj_group._v_attrs['last_random_state']
         assert randomstate_equal(saved_rs, rs_postdiffusion)
+        S.store.close()
 
 
-def test_diffusion_sim_core():
-    for psf in (pbm.NumericPSF(), pbm.GaussianPSF()):
-        # Initialize the random state
-        rs = np.random.RandomState(_SEED)
-        P = pbm.Particles(num_particles=100, D=D1, box=box, rs=rs)
-        t_max = 0.001
-        time_size = t_max / t_step
-        assert t_max < 1e4
-        S = pbm.ParticlesSimulation(t_step=t_step, t_max=t_max,
-                                    particles=P, box=box, psf=psf)
+def _test_diffusion_sim_core(psf):
+    # Initialize the random state
+    rs = np.random.RandomState(_SEED)
+    P = pbm.Particles(num_particles=100, D=D1, box=box, rs=rs)
+    t_max = 0.001
+    time_size = t_max / t_step
+    assert t_max < 1e4
+    S = pbm.ParticlesSimulation(t_step=t_step, t_max=t_max,
+                                particles=P, box=box, psf=psf)
 
-        start_pos = [p.r0 for p in S.particles]
-        start_pos = np.vstack(start_pos).reshape(S.num_particles, 3, 1)
+    start_pos = [p.r0 for p in S.particles]
+    start_pos = np.vstack(start_pos).reshape(S.num_particles, 3, 1)
 
-        for wrap_func in [pbm.diffusion.wrap_mirror, pbm.diffusion.wrap_periodic]:
-            for total_emission in [True, False]:
-                sim = S._sim_trajectories(time_size, start_pos, rs=rs,
-                                        total_emission=total_emission,
-                                        save_pos=True, wrap_func=wrap_func)
+    for wrap_func in [pbm.diffusion.wrap_mirror, pbm.diffusion.wrap_periodic]:
+        for total_emission in [True, False]:
+            sim = S._sim_trajectories(time_size, start_pos, rs=rs,
+                                    total_emission=total_emission,
+                                    save_pos=True, wrap_func=wrap_func)
 
-        POS, em = sim
-        POS = np.concatenate(POS, axis=0)
-        # x, y, z = POS[:, :, 0], POS[:, :, 1], POS[:, :, 2]
-        # r_squared = x**2 + y**2 + z**2
+    POS, em = sim
+    POS = np.concatenate(POS, axis=0)
+    # x, y, z = POS[:, :, 0], POS[:, :, 1], POS[:, :, 2]
+    # r_squared = x**2 + y**2 + z**2
 
-        DR = np.diff(POS, axis=2)
-        dx, dy, dz = DR[:, :, 0], DR[:, :, 1], DR[:, :, 2]
-        dr_squared = dx**2 + dy**2 + dz**2
+    DR = np.diff(POS, axis=2)
+    dx, dy, dz = DR[:, :, 0], DR[:, :, 1], DR[:, :, 2]
+    dr_squared = dx**2 + dy**2 + dz**2
 
-        D_fitted = dr_squared.mean() / (6 * t_max)  # Fitted diffusion coefficient
-        assert np.abs(D1 - D_fitted) < 0.01
+    D_fitted = dr_squared.mean() / (6 * t_max)  # Fitted diffusion coefficient
+    assert np.abs(D1 - D_fitted) < 0.01
+
+
+def test_diffusion_sim_core_npsf():
+    _test_diffusion_sim_core(pbm.NumericPSF())
+
+
+def test_diffusion_sim_core_gpsf():
+    _test_diffusion_sim_core(pbm.GaussianPSF())
 
 
 def test_simulate_timestamps():
@@ -249,5 +257,5 @@ def test_TimestampSimulation():
         mix_sim.summarize()
 
         rs = np.random.RandomState(_SEED)
-        mix_sim.run(rs=rs, overwrite=False)
+        mix_sim.run(rs=rs, overwrite=True)
         mix_sim.save_photon_hdf5()
