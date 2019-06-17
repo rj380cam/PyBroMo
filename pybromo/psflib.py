@@ -41,21 +41,24 @@ class GaussianPSF:
 
     def __init__(self, xc=0, yc=0, zc=0, sx=1, sy=1, sz=1, psf_pytables=None):
         """Create a Gaussian PSF object with given center and sigmas.
-        `xc`, `yc`, `zc`: position of the center of the gaussian
-        `sx`, `sy`, `sz`: sigmas of the gaussian function.
+        `xc`, `yc`, `zc`: position of the center of the gaussian (um)
+        `sx`, `sy`, `sz`: sigmas of the gaussian function (um).
+        `psf_pytables`, if not None, it is a pytables array from which
+        to load the PSF data. `psf_pytables` overrides the other
+        arguments.
         """
         self.kind = 'gauss'
         self.fname = 'gaussian_psf' 
         if psf_pytables is not None:
             assert psf_pytables.attrs['kind'] == 'gauss'
-            self.rc, self.s = psf_pytables.read()
+            self.rc, self.s = psf_pytables.read().astype(np.float64)
             self.xc, self.yc, self.zc = self.rc
             self.sx, self.sy, self.sz = self.s
         else:
             self.xc, self.yc, self.zc = xc, yc, zc
-            self.rc = np.array([xc, yc, zc])
+            self.rc = np.array([xc, yc, zc], dtype=np.float64)
             self.sx, self.sy, self.sz = sx, sy, sz
-            self.s = np.array([sx, sy, sz])
+            self.s = np.array([sx, sy, sz], dtype=np.float64)
 
     def __repr__(self):
         return f'GaussianPSF( {dict(mean=self.rc, sigma=self.s)} )'
@@ -71,7 +74,7 @@ class GaussianPSF:
 
         ## Method2: evaluation using numexpr
         def arg(s):
-            return "((%s-%sc)**2)/(2*s%s**2)" % (s, s, s)
+            return "((%s*1e6-%sc)**2)/(2*s%s**2)" % (s, s, s)
         return NE.evaluate("exp(-(%s + %s + %s))" %
                            (arg("x"), arg("y"), arg("z")))
 
@@ -85,7 +88,7 @@ class GaussianPSF:
         """
         xc, yc, zc = self.rc
         sx, sy, sz = self.s
-        return exp(-(((x-xc)**2)/(2*sx**2) + ((z-zc)**2)/(2*sz**2)))
+        return exp(-(((x*1e6-xc)**2)/(2*sx**2) + ((z*1e6-zc)**2)/(2*sz**2)))
        
     def hash(self):
         """Return an hash string computed on the PSF data."""
