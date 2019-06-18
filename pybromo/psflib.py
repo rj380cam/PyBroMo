@@ -164,7 +164,7 @@ class NumericPSF:
         """Store the PSF data in `file_handle` (pytables) in `parent_node`.
 
         The raw PSF array name is stored with same name as the original fname.
-        Also, the following attribues are set: fname, dir_, x_step, z_step.
+        Also, the following attributes are set: fname, dir_, x_step, z_step.
         """
         tarray = file_handle.create_array(parent_node, name=self.fname,
                                           obj=self.psflab_psf_raw,
