@@ -22,7 +22,7 @@ import tables
 
 from .storage import TrajectoryStore, TimestampStore, ExistingArrayError
 from .iter_chunks import iter_chunksize, iter_chunk_index
-from .psflib import NumericPSF
+from .psflib import NumericPSF, GaussianPSF, psf_from_pytables
 
 from ._version import get_versions
 __version__ = get_versions()['version']
@@ -289,6 +289,8 @@ class ParticlesSimulation(object):
     @staticmethod
     def from_datafile(hash_, path='./', ignore_timestamps=False, mode='r'):
         """Load simulation from disk trajectories and (when present) timestamps.
+
+        `mode` is only applied for opening a prexisting timestamp file.
         """
         path = Path(path)
         assert path.exists()
@@ -298,7 +300,7 @@ class ParticlesSimulation(object):
         store = TrajectoryStore(file_traj, mode='r')
 
         psf_pytables = store.h5file.get_node('/psf/default_psf')
-        psf = NumericPSF(psf_pytables=psf_pytables)
+        psf = psf_from_pytables(psf_pytables)
         box = store.h5file.get_node_attr('/parameters', 'box')
         P = store.h5file.get_node_attr('/parameters', 'particles')
 
