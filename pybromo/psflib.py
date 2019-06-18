@@ -39,7 +39,7 @@ def psf_from_pytables(psf_pytables):
 class GaussianPSF:
     """This class implements a Gaussian-shaped PSF function."""
 
-    def __init__(self, xc=0, yc=0, zc=0, sx=0.2e-6, sy=0.2e-6, sz=1e-6, psf_pytables=None):
+    def __init__(self, xc=0, yc=0, zc=0, sx=0.2e-6, sy=0.2e-6, sz=0.8e-6, psf_pytables=None):
         """Create a Gaussian PSF object with given center and sigmas.
         `xc`, `yc`, `zc`: position of the center of the gaussian (m)
         `sx`, `sy`, `sz`: sigmas of the gaussian function (m).
