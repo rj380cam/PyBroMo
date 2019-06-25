@@ -486,8 +486,7 @@ class ParticlesSimulation(object):
                 All the previously stored data in that file will be lost.
         """[1:]
 
-    def _open_store(self, store, prefix='', path='./', chunksize=2**19,
-                    chunkslice='bytes', mode='w'):
+    def _open_store(self, store, prefix='', path='./', mode='w'):
         """Open and setup the on-disk storage file (pytables HDF5 file).
 
         Low level method used to implement different stores.
@@ -498,13 +497,10 @@ class ParticlesSimulation(object):
         Returns:
             Store object.
         """
-        nparams = self.numeric_params
-        self.chunksize = chunksize
-        nparams.update(chunksize=(chunksize, 'Chunksize for arrays'))
         store_fname = '%s_%s.hdf5' % (prefix, self.compact_name())
         attr_params = dict(particles=self.particles.to_json(), box=self.box)
-        kwargs = dict(path=path, nparams=nparams, attr_params=attr_params,
-                      mode=mode)
+        kwargs = dict(path=path, nparams=self.numeric_params,
+                      attr_params=attr_params, mode=mode)
         store_obj = store(store_fname, **kwargs)
         return store_obj
 
@@ -519,8 +515,6 @@ class ParticlesSimulation(object):
         self.store = self._open_store(TrajectoryStore,
                                       prefix=ParticlesSimulation._PREFIX_TRAJ,
                                       path=path,
-                                      chunksize=chunksize,
-                                      chunkslice=chunkslice,
                                       mode=mode)
 
         self.psf_pytables = self.psf.to_hdf5(self.store.h5file, '/psf')
@@ -530,13 +524,12 @@ class ParticlesSimulation(object):
         self.traj_group = self.store.h5file.root.trajectories
         self.traj_group._v_attrs['psf_name'] = self.psf.fname
 
-        kwargs = dict(chunksize=self.chunksize, chunkslice=chunkslice)
+        kwargs = dict(chunksize=chunksize, chunkslice=chunkslice)
         self.emission_tot = self.store.add_emission_tot(**kwargs)
         self.emission = self.store.add_emission(**kwargs)
         self.position = self.store.add_position(radial=radial, **kwargs)
 
-    def open_store_timestamp(self, path=None, chunksize=2**19,
-                             chunkslice='bytes', mode='w'):
+    def open_store_timestamp(self, path=None, mode='w'):
         """Open and setup the on-disk storage file (pytables HDF5 file).
 
         Arguments:
@@ -553,8 +546,6 @@ class ParticlesSimulation(object):
         self.ts_store = self._open_store(TimestampStore,
                                          prefix=ParticlesSimulation._PREFIX_TS,
                                          path=path,
-                                         chunksize=chunksize,
-                                         chunkslice=chunkslice,
                                          mode=mode)
         self.ts_group = self.ts_store.h5file.root.timestamps
 
@@ -964,7 +955,7 @@ class ParticlesSimulation(object):
             timeslice (float or None): timestamps are simulated until
                 `timeslice` seconds. If None, simulate until `self.t_max`.
         """
-        self.open_store_timestamp(chunksize=chunksize, path=path)
+        self.open_store_timestamp(path=path)
         rs = self._get_group_randomstate(rs, seed, self.ts_group)
         if t_chunksize is None:
             t_chunksize = self.emission.chunkshape[1]
@@ -1084,7 +1075,7 @@ class ParticlesSimulation(object):
             timeslice (float or None): timestamps are simulated until
                 `timeslice` seconds. If None, simulate until `self.t_max`.
         """
-        self.open_store_timestamp(chunksize=chunksize, path=path)
+        self.open_store_timestamp(path=path)
         rs = self._get_group_randomstate(rs, seed, self.ts_group)
         if t_chunksize is None:
             t_chunksize = self.emission.chunkshape[1]
@@ -1206,7 +1197,7 @@ class ParticlesSimulation(object):
             timeslice (float or None): timestamps are simulated until
                 `timeslice` seconds. If None, simulate until `self.t_max`.
         """
-        self.open_store_timestamp(chunksize=chunksize, path=path)
+        self.open_store_timestamp(path=path)
         rs = self._get_group_randomstate(rs, seed, self.ts_group)
         if t_chunksize is None:
             t_chunksize = 2**19

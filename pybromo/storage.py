@@ -40,13 +40,13 @@ class BaseStore(object):
         if chunksize is None:
             return None
 
+        divisor = 1
         if kind == 'bytes':
-            divisor = 1
             for dimsize in shape[:-1]:
                 divisor *= dimsize
 
         if len(shape) == 1:
-            chunkshape = (chunksize,)
+            chunkshape = (chunksize / divisor,)
         elif len(shape) == 2:
             chunkshape = (shape[0], chunksize / divisor)
         elif len(shape) == 3:
@@ -89,16 +89,18 @@ class BaseStore(object):
     def set_sim_params(self, nparams, attr_params):
         """Store parameters in `params` in `h5file.root.parameters`.
 
-        `nparams` (dict)
-            A dict as returned by `get_params()` in `ParticlesSimulation()`
-            The format is:
-            keys:
-                used as parameter name
-            values: (2-elements tuple)
-                first element is the parameter value
-                second element is a string used as "title" (description)
-        `attr_params` (dict)
-            A dict whole items are stored as attributes in '/parameters'
+        Argument:
+            nparams (dict): a dict of parameters from
+                `ParticlesSimulation().nparams`. The format is:
+
+                keys:
+                    used as parameter name
+                values: (2-elements tuple)
+                    first element is the parameter value
+                    second element is a string used as "title" (description)
+
+            attr_params (dict): dict items will be stored as attributes in
+                '/parameters'
         """
         for name, value in nparams.items():
             val = value[0] if value[0] is not None else 'none'
@@ -112,24 +114,25 @@ class BaseStore(object):
         """Return a dict containing all (key, values) stored in '/parameters'
         """
         nparams = dict()
-        for p in self.h5file.root.parameters:
-            nparams[p.name] = p.read()
+        for par in self.h5file.root.parameters:
+            nparams[par.name] = par.read()
         return nparams
 
     @property
     def numeric_params_meta(self):
         """Return a dict with all parameters and metadata in '/parameters'.
 
-        This returns the same dict format as returned by get_params() method
-        in ParticlesSimulation().
+        This returns the same dict format as `ParticlesSimulation().nparams`.
         """
         nparams = dict()
-        for p in self.h5file.root.parameters:
-            nparams[p.name] = (p.read(), p.title)
+        for par in self.h5file.root.parameters:
+            nparams[par.name] = (par.read(), par.title)
         return nparams
 
 
 class TrajectoryStore(BaseStore):
+    """An on-disk HDF5 store for trajectories.
+    """
     def __init__(self, datafile, path='./', nparams=dict(), attr_params=dict(),
                  mode='r'):
         """Return a new HDF5 file to store simulation results.
@@ -152,9 +155,9 @@ class TrajectoryStore(BaseStore):
             self.h5file.create_group('/', 'psf', 'PSFs used in the simulation')
 
     def add_trajectory(self, name, overwrite=False, shape=(0,), title='',
-                       chunksize=2**19, comp_filter=default_compression,
-                       atom=tables.Float64Atom(), params=dict(),
-                       chunkslice='bytes'):
+                       chunksize=2**19, chunkslice='bytes',
+                       comp_filter=default_compression,
+                       atom=tables.Float64Atom(), params=dict()):
         """Add an trajectory array in '/trajectories'.
         """
         group = self.h5file.root.trajectories
@@ -186,18 +189,20 @@ class TrajectoryStore(BaseStore):
         store_array.set_attr('creation_time', current_time())
         return store_array
 
-    def add_emission_tot(self, chunksize=2**19, comp_filter=default_compression,
-                         overwrite=False, params=dict(),
-                         chunkslice='bytes'):
+    def add_emission_tot(self, chunksize=2**19, chunkslice='bytes',
+                         comp_filter=default_compression,
+                         overwrite=False, params=dict()):
         """Add the `emission_tot` array in '/trajectories'.
         """
-        kwargs = dict(overwrite=overwrite, chunksize=chunksize, params=params,
+        kwargs = dict(overwrite=overwrite, params=params,
+                      chunksize=chunksize, chunkslice=chunkslice,
                       comp_filter=comp_filter, atom=tables.Float32Atom(),
                       title='Summed emission trace of all the particles')
         return self.add_trajectory('emission_tot', **kwargs)
 
-    def add_emission(self, chunksize=2**19, comp_filter=default_compression,
-                     overwrite=False, params=dict(), chunkslice='bytes'):
+    def add_emission(self, chunksize=2**19, chunkslice='bytes',
+                     comp_filter=default_compression,
+                     overwrite=False, params=dict()):
         """Add the `emission` array in '/trajectories'.
         """
         nparams = self.numeric_params
@@ -205,6 +210,7 @@ class TrajectoryStore(BaseStore):
 
         return self.add_trajectory('emission', shape=(num_particles, 0),
                                    overwrite=overwrite, chunksize=chunksize,
+                                   chunkslice=chunkslice,
                                    comp_filter=comp_filter,
                                    atom=tables.Float32Atom(),
                                    title='Emission trace of each particle',
@@ -224,6 +230,7 @@ class TrajectoryStore(BaseStore):
         title = '%s position trace of each particle' % prefix
         return self.add_trajectory(name, shape=(num_particles, ncoords, 0),
                                    overwrite=overwrite, chunksize=chunksize,
+                                   chunkslice=chunkslice,
                                    comp_filter=comp_filter,
                                    atom=tables.Float32Atom(),
                                    title=title,
@@ -231,6 +238,8 @@ class TrajectoryStore(BaseStore):
 
 
 class TimestampStore(BaseStore):
+    """An on-disk HDF5 store for timestamps.
+    """
     def __init__(self, datafile, path='./', nparams=dict(), attr_params=dict(),
                  mode='r'):
         """Return a new HDF5 file to store simulation results.
@@ -248,7 +257,6 @@ class TimestampStore(BaseStore):
                          attr_params=attr_params, mode=mode)
         if mode != 'r':
             if 'timestamps' not in self.h5file.root:
-                # Create the groups
                 self.h5file.create_group('/', 'timestamps',
                                          'Simulated timestamps')
 
