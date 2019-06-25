@@ -13,7 +13,7 @@ from time import ctime
 from pathlib import Path
 import phconvert as phc
 
-from .diffusion import hash_
+from .diffusion import hashfunc
 from ._version import get_versions
 __version__ = get_versions()['version']
 
@@ -268,7 +268,7 @@ class TimestampSimulation:
     def _calc_hash_da(self, rs):
         """Compute hash of D and A timestamps for single-step D+A case.
         """
-        self.hash_d = hash_(rs.get_state())[:6]
+        self.hash_d = hashfunc(rs.get_state())[:6]
         self.hash_a = self.hash_d
 
     def run(self, rs, overwrite=True, skip_existing=False, path=None,
@@ -291,7 +291,7 @@ class TimestampSimulation:
         header = ' - Mixture Simulation:'
 
         # Donor timestamps hash is from the input RandomState
-        self.hash_d = hash_(rs.get_state())[:6]   # needed by merge_da()
+        self.hash_d = hashfunc(rs.get_state())[:6]   # needed by merge_da()
         print('%s Donor timestamps -    %s' % (header, ctime()), flush=True)
         self.S.simulate_timestamps_mix(
             populations=self.populations,
@@ -304,7 +304,7 @@ class TimestampSimulation:
         # donor + acceptor timestamps given the input random state.
         ts_d, _, _ = self.S.get_timestamp_data(self.name_timestamps_d)
         rs.set_state(ts_d.attrs['last_random_state'])
-        self.hash_a = hash_(rs.get_state())[:6]   # needed by merge_da()
+        self.hash_a = hashfunc(rs.get_state())[:6]   # needed by merge_da()
         print('\n%s Acceptor timestamps - %s' % (header, ctime()), flush=True)
         self.S.simulate_timestamps_mix(
             populations=self.populations,

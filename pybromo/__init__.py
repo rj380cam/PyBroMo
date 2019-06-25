@@ -16,6 +16,17 @@ from . import plotter
 
 from .utils import hdf5
 
-from .diffusion import Box, Particles, ParticlesSimulation, hash_
+from .diffusion import Box, Particles, ParticlesSimulation, hashfunc
 from .psflib import GaussianPSF, NumericPSF
 from .timestamps import TimestampSimulation
+
+import warnings
+
+
+def deprecation(message):
+    warnings.warn(message, FutureWarning, stacklevel=2)
+
+
+def hash_(x):
+    deprecation('The function `hash_` is deprecated, please use `hashfunc` instead.')
+    return hashfunc(x)
