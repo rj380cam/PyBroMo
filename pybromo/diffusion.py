@@ -38,7 +38,7 @@ def get_seed(seed, ID=0, EID=0):
     return seed + EID + 100 * ID
 
 
-def hash_(x):
+def hashfunc(x):
     return hashlib.sha1(repr(x).encode()).hexdigest()
 
 
@@ -166,7 +166,7 @@ class Particles(object):
             self._plist = self._generate(num_particles, D, box, rs)
         else:
             self._plist = list(particles)
-        self.rs_hash = hash_(self.init_random_state)[:3]
+        self.rs_hash = hashfunc(self.init_random_state)[:3]
 
     def add(self, num_particles, D):
         """Add particles with diffusion coefficient `D` at random positions.
@@ -505,8 +505,8 @@ class ParticlesSimulation(object):
         attr_params = dict(particles=self.particles.to_json(), box=self.box)
         kwargs = dict(path=path, nparams=nparams, attr_params=attr_params,
                       mode=mode)
-        store = store(store_fname, **kwargs)
-        return store
+        store_obj = store(store_fname, **kwargs)
+        return store_obj
 
     def open_store_traj(self, path='./', chunksize=2**19, chunkslice='bytes',
                         mode='w', radial=False):
@@ -711,7 +711,7 @@ class ParticlesSimulation(object):
     def _get_ts_name_mix(self, max_rates, populations, bg_rate, rs,
                          hashsize=6):
         s = self._get_ts_name_mix_core(max_rates, populations, bg_rate)
-        return '%s_rs_%s' % (s, hash_(rs.get_state())[:hashsize])
+        return '%s_rs_%s' % (s, hashfunc(rs.get_state())[:hashsize])
 
     def timestamps_match_pattern(self, pattern):
         return [t for t in self.timestamp_names if pattern in t]

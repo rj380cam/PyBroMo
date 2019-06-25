@@ -23,6 +23,8 @@ from numpy import exp
 
 
 def psf_from_pytables(psf_pytables):
+    """Load a PSF object (either numeric or gauss) from a pytables array.
+    """
     if 'kind' not in psf_pytables.attrs:
         # old files may not have the `kind` attribute, assume NumericPSF
         psf_type = 'numeric'
@@ -48,7 +50,7 @@ class GaussianPSF:
         arguments.
         """
         self.kind = 'gauss'
-        self.fname = 'gaussian_psf' 
+        self.fname = 'gaussian_psf'
         if psf_pytables is not None:
             assert psf_pytables.attrs['kind'] == 'gauss'
             self.rc, self.s = psf_pytables.read().astype(np.float64)
@@ -89,7 +91,7 @@ class GaussianPSF:
         xc, yc, zc = self.rc
         sx, sy, sz = self.s
         return exp(-(((x-xc)**2)/(2*sx**2) + ((z-zc)**2)/(2*sz**2)))
-       
+
     def hash(self):
         """Return an hash string computed on the PSF data."""
         return hashlib.md5(repr(self).encode()).hexdigest()
@@ -97,7 +99,7 @@ class GaussianPSF:
     def to_hdf5(self, file_handle, parent_node='/'):
         """Store the PSF data in `file_handle` (pytables) in `parent_node`.
 
-        The PSF data is stored in an array named `gauss_psf_params` with 
+        The PSF data is stored in an array named `gauss_psf_params` with
         shape 2 x 3. Columns are x, y, z coordinates, rows are mean and
         standard deviation.
         """
