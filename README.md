@@ -1,12 +1,14 @@
 # PyBroMo Overview
 
-[![DOI](https://zenodo.org/badge/5991/tritemio/PyBroMo.svg)](https://zenodo.org/badge/latestdoi/5991/tritemio/PyBroMo)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3256149.svg)](https://doi.org/10.5281/zenodo.3256149)
 
 <div>
 <img title="Numerical PSF" src="https://cloud.githubusercontent.com/assets/4156237/11383966/b5781438-92c0-11e5-982c-0499b95dac43.png" height="110" />
 <img title="Particles Trajectories" src="https://cloud.githubusercontent.com/assets/4156237/11383974/c3020bae-92c0-11e5-86d7-0f41055e2095.png" height="110" />
 <img title="Simulated smFRET timetrace, bursts and FRET histogram" src="https://cloud.githubusercontent.com/assets/4156237/11384620/11051666-92c6-11e5-871e-041e71839f22.png" height="110" />
 </div>
+
+> *What's new in the latest release? See [Release Notes](https://github.com/OpenSMFS/PyBroMo/releases)*.
 
 **[PyBroMo](http://opensmfs.github.io/PyBroMo/)** is an open-source simulator
 for Brownian-motion diffusion and photon emission of fluorescent particles
@@ -15,9 +17,7 @@ PyBroMo allows to simulate timestamps of photons emitted during
 [smFRET](http://en.wikipedia.org/wiki/Single-molecule_FRET) experiments,
 including sample background and detectors dark counts and to save the results in
 in [Photon-HDF5](http://photon-hdf5.org) format. The smFRET data files can
-be analyzed with any smFRET burst analysis software.
-
-> For an opensource smFRET burst analysis software supporting Photon-HDF5 see [FRETBursts](https://github.com/OpenSMFS/FRETBursts).
+be analyzed with smFRET burst analysis software such as [FRETBursts](https://github.com/OpenSMFS/FRETBursts).
 
 PyBromo simulates 3-D Brownian motion trajectories and emission of an
 arbitrary number of particles freely diffusing in a simulation volume (a box).
