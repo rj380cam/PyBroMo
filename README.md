@@ -1,6 +1,7 @@
 # PyBroMo Overview
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3256149.svg)](https://doi.org/10.5281/zenodo.3256149)
+> *What's new in the latest release? See [Release Notes](https://github.com/OpenSMFS/PyBroMo/releases)*.
 
 <div>
 <img title="Numerical PSF" src="https://cloud.githubusercontent.com/assets/4156237/11383966/b5781438-92c0-11e5-982c-0499b95dac43.png" height="110" />
@@ -8,7 +9,6 @@
 <img title="Simulated smFRET timetrace, bursts and FRET histogram" src="https://cloud.githubusercontent.com/assets/4156237/11384620/11051666-92c6-11e5-871e-041e71839f22.png" height="110" />
 </div>
 
-> *What's new in the latest release? See [Release Notes](https://github.com/OpenSMFS/PyBroMo/releases)*.
 
 **[PyBroMo](http://opensmfs.github.io/PyBroMo/)** is an open-source simulator
 for Brownian-motion diffusion and photon emission of fluorescent particles
@@ -30,8 +30,8 @@ local excitation intensity.
 A precomputed numerical [PSF](http://en.wikipedia.org/wiki/Point_spread_function)
 is included and used by default.
 The included numerical PSF is computed through
-rigorous vectorial electromagnetic computations ([Nasse, Woehl 2010]
-(http://dx.doi.org/10.1364/JOSAA.27.000295)) using the
+rigorous vectorial electromagnetic computations 
+([Nasse, Woehl 2010](http://dx.doi.org/10.1364/JOSAA.27.000295)) using the
 [PSFLab](http://onemolecule.chem.uwm.edu/software) software.
 The user can provide a different numerical PSF or,
 alternatively, use an analytical Gaussian-shaped PSF.
