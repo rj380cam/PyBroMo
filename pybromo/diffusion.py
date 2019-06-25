@@ -319,7 +319,6 @@ class ParticlesSimulation(object):
             S.position = S.traj_group.position
         elif 'position_rz' in S.traj_group:
             S.position = S.traj_group.position_rz
-        S.chunksize = S.store.h5file.get_node('/parameters', 'chunksize')
         if not ignore_timestamps:
             try:
                 file_ts = ParticlesSimulation.datafile_from_hash(
