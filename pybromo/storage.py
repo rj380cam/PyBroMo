@@ -53,7 +53,7 @@ class BaseStore(object):
             chunkshape = (shape[0], shape[1], chunksize / divisor)
         return chunkshape
 
-    def __init__(self, datafile, path='./', nparams=dict(), attr_params=dict(),
+    def __init__(self, datafile, path='./', nparams=None, attr_params=None,
                  mode='r'):
         """Return a new HDF5 file to store simulation results.
 
@@ -63,6 +63,8 @@ class BaseStore(object):
 
         If `mode='w'`, `datafile` will be overwritten (if exists).
         """
+        if nparams is None: nparams = {}
+        if attr_params is None: attr_params = {}
         if isinstance(datafile, Path):
             self.filepath = datafile
         else:
@@ -133,7 +135,7 @@ class BaseStore(object):
 class TrajectoryStore(BaseStore):
     """An on-disk HDF5 store for trajectories.
     """
-    def __init__(self, datafile, path='./', nparams=dict(), attr_params=dict(),
+    def __init__(self, datafile, path='./', nparams=None, attr_params=None,
                  mode='r'):
         """Return a new HDF5 file to store simulation results.
 
@@ -157,9 +159,10 @@ class TrajectoryStore(BaseStore):
     def add_trajectory(self, name, overwrite=False, shape=(0,), title='',
                        chunksize=2**19, chunkslice='bytes',
                        comp_filter=default_compression,
-                       atom=tables.Float64Atom(), params=dict()):
+                       atom=tables.Float64Atom(), params=None):
         """Add an trajectory array in '/trajectories'.
         """
+        if params is None: params = {}
         group = self.h5file.root.trajectories
         if name in group:
             print("%s already exists ..." % name, end='')
@@ -191,7 +194,7 @@ class TrajectoryStore(BaseStore):
 
     def add_emission_tot(self, chunksize=2**19, chunkslice='bytes',
                          comp_filter=default_compression,
-                         overwrite=False, params=dict()):
+                         overwrite=False, params=None):
         """Add the `emission_tot` array in '/trajectories'.
         """
         kwargs = dict(overwrite=overwrite, params=params,
@@ -202,12 +205,10 @@ class TrajectoryStore(BaseStore):
 
     def add_emission(self, chunksize=2**19, chunkslice='bytes',
                      comp_filter=default_compression,
-                     overwrite=False, params=dict()):
+                     overwrite=False, params=None):
         """Add the `emission` array in '/trajectories'.
         """
-        nparams = self.numeric_params
-        num_particles = nparams['np']
-
+        num_particles = self.numeric_params['np']
         return self.add_trajectory('emission', shape=(num_particles, 0),
                                    overwrite=overwrite, chunksize=chunksize,
                                    chunkslice=chunkslice,
@@ -218,12 +219,10 @@ class TrajectoryStore(BaseStore):
 
     def add_position(self, radial=False, chunksize=2**19, chunkslice='bytes',
                      comp_filter=default_compression, overwrite=False,
-                     params=dict()):
+                     params=None):
         """Add the `position` array in '/trajectories'.
         """
-        nparams = self.numeric_params
-        num_particles = nparams['np']
-
+        num_particles = self.numeric_params['np']
         name, ncoords, prefix = 'position', 3, 'X-Y-Z'
         if radial:
             name, ncoords, prefix = 'position_rz', 2, 'R-Z'
@@ -240,7 +239,7 @@ class TrajectoryStore(BaseStore):
 class TimestampStore(BaseStore):
     """An on-disk HDF5 store for timestamps.
     """
-    def __init__(self, datafile, path='./', nparams=dict(), attr_params=dict(),
+    def __init__(self, datafile, path='./', nparams=None, attr_params=None,
                  mode='r'):
         """Return a new HDF5 file to store simulation results.
 
