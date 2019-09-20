@@ -611,6 +611,71 @@ class ParticlesSimulation(object):
             start_pos[i] = pos[:, -1:]
         return POS, em
 
+    def _sim_trajectories_vfield(self, time_size, start_pos, rs,
+                          total_emission=False, save_pos=False, radial=False,
+                          wrap_func=wrap_periodic, vfield = [0.2, 0.2, 0.2]):
+        """Simulate (in-memory) `time_size` steps of trajectories.
+
+        Simulate Brownian motion diffusion and emission of all the particles.
+        Uses the attributes: num_particles, sigma_1d, box, psf.
+
+        Arguments:
+            time_size (int): number of time steps to be simulated.
+            start_pos (array): shape (num_particles, 3), particles start
+                positions. This array is modified to store the end position
+                after this method is called.
+            rs (RandomState): a `numpy.random.RandomState` object used
+                to generate the random numbers.
+            total_emission (bool): if True, store only the total emission array
+                containing the sum of emission of all the particles.
+            save_pos (bool): if True, save the particles 3D trajectories
+            wrap_func (function): the function used to apply the boundary
+                condition (use :func:`wrap_periodic` or :func:`wrap_mirror`).
+
+        Returns:
+            POS (list): list of 3D trajectories arrays (3 x time_size)
+            em (array): array of emission (total or per-particle)
+        """
+        deltat = self.t_step
+        time_size = int(time_size)
+        num_particles = self.num_particles
+        if total_emission:
+            em = np.zeros(time_size, dtype=np.float32)
+        else:
+            em = np.zeros((num_particles, time_size), dtype=np.float32)
+
+        POS = []
+        # pos_w = np.zeros((3, c_size))
+        for i, sigma_1d in enumerate(self.sigma_1d):
+            delta_pos = rs.normal(loc=0, scale=sigma_1d,
+                                  size=3 * time_size)
+            delta_pos = delta_pos.reshape(time_size, 3)
+            delta_pos = (np.asarray(delta_pos) + np.asarray(vfield) * deltat).T
+            pos = np.cumsum(delta_pos, axis=-1, out=delta_pos)
+            pos += start_pos[i]
+
+            # Coordinates wrapping using the specified boundary conditions
+            for coord in (0, 1, 2):
+                pos[coord] = wrap_func(pos[coord], *self.box.b[coord])
+
+            # Sample the PSF along i-th trajectory then square to account
+            # for emission and detection PSF.
+            Ro = sqrt(pos[0]**2 + pos[1]**2)  # radial pos. on x-y plane
+            Z = pos[2]
+            current_em = self.psf.eval_xz(Ro, Z)**2
+            if total_emission:
+                # Add the current particle emission to the total emission
+                em += current_em.astype(np.float32)
+            else:
+                # Store the individual emission of current particle
+                em[i] = current_em.astype(np.float32)
+            if save_pos:
+                pos_save = np.vstack((Ro, Z)) if radial else pos
+                POS.append(pos_save[np.newaxis, :, :])
+            # Update start_pos in-place for current particle
+            start_pos[i] = pos[:, -1:]
+        return POS, em
+
     def simulate_diffusion(self, save_pos=False, total_emission=True,
                            radial=False, rs=None, seed=1, path='./',
                            wrap_func=wrap_periodic,
@@ -677,6 +742,76 @@ class ParticlesSimulation(object):
             i_chunk += 1
             self.store.h5file.flush()
 
+        # Save current random state
+        self.traj_group._v_attrs['last_random_state'] = rs.get_state()
+        self.store.h5file.flush()
+        print('\n- End trajectories simulation - %s' % ctime(), flush=True)
+
+    def simulate_diff_plus_vfield(self, save_pos=False, total_emission=True,
+                           radial=False, rs=None, seed=1, path='./',
+                           wrap_func=wrap_periodic, chunksize=2**19,
+                           chunkslice='times', verbose=True, vfield=[1,0,0]):
+        """Simulate Brownian motion trajectories and emission rates in diff.
+
+        This method performs the Brownian motion simulation using the current
+        set of parameters. Before running this method you can check the
+        disk-space requirements using :method:`print_sizes`.
+
+        Results are stored to disk in HDF5 format and are accessible in
+        in `self.emission`, `self.emission_tot` and `self.position` as
+        pytables arrays.
+
+        Arguments:
+            save_pos (bool): if True, save the particles 3D trajectories
+            total_emission (bool): if True, store only the total emission array
+                containing the sum of emission of all the particles.
+            rs (RandomState object): random state object used as random number
+                generator. If None, use a random state initialized from seed.
+            seed (uint): when `rs` is None, `seed` is used to initialize the
+                random state, otherwise is ignored.
+            wrap_func (function): the function used to apply the boundary
+                condition (use :func:`wrap_periodic` or :func:`wrap_mirror`).
+            path (string): a folder where simulation data is saved.
+            verbose (bool): if False, prints no output.
+        """
+        if rs is None:
+            rs = np.random.RandomState(seed=seed)
+        self.open_store_traj(chunksize=chunksize, chunkslice=chunkslice,
+                             radial=radial, path=path)
+        # Save current random state for reproducibility
+        self.traj_group._v_attrs['init_random_state'] = rs.get_state()
+
+        em_store = self.emission_tot if total_emission else self.emission
+
+        print('- Start trajectories simulation - %s' % ctime(), flush=True)
+        if verbose:
+            print('[PID %d] Diffusion time:' % os.getpid(), end='')
+        i_chunk = 0
+        t_chunk_size = self.emission.chunkshape[1]
+        chunk_duration = t_chunk_size * self.t_step
+
+        par_start_pos = self.particles.positions
+        prev_time = 0
+        for time_size in iter_chunksize(self.n_samples, t_chunk_size):
+            if verbose:
+                curr_time = int(chunk_duration * (i_chunk + 1))
+                if curr_time > prev_time:
+                    print(' %ds' % curr_time, end='', flush=True)
+                    prev_time = curr_time
+
+            POS, em = self._sim_trajectories_vfield(time_size, par_start_pos,
+                                        rs, total_emission=total_emission,
+                                        save_pos=save_pos, radial=radial,
+                                        wrap_func=wrap_func, vfield=vfield)
+
+            # Append em to the permanent storage
+            # if total_emission, data is just a linear array
+            # otherwise is a 2-D array (self.num_particles, c_size)
+            em_store.append(em)
+            if save_pos:
+                self.position.append(np.vstack(POS).astype('float32'))
+            i_chunk += 1
+            self.store.h5file.flush()
         # Save current random state
         self.traj_group._v_attrs['last_random_state'] = rs.get_state()
         self.store.h5file.flush()
